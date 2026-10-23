@@ -1,6 +1,6 @@
 {
   "name": "lampa-plugins",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "scripts": { "test": "node --check sports.js && node --test tests/*.test.cjs" }
 }

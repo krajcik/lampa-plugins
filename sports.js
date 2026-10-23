@@ -1,7 +1,7 @@
 (function (root) {
     'use strict';
 
-    var VERSION = '0.1.1';
+    var VERSION = '0.1.2';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', queries: ['NHL', 'НХЛ'], color: '#395d88' },
         nba: { title: 'NBA', path: 'basketball/nba', queries: ['NBA', 'НБА'], color: '#96532f' },
@@ -204,8 +204,7 @@
         return {
             title: event.title, cover: poster(event.sport), overview: date,
             params: { style: { name: 'wide' }, module: L.Maker.module('Card').only('Card', 'Style', 'Callback'), emit: {
-                onlyEnter: function () { choose(event); }, onlyLong: function () { choose(event, true); },
-                onlyFocus: function () { L.Background.change(''); }
+                onlyEnter: function () { choose(event); }, onlyLong: function () { choose(event, true); }
             } }
         };
     }
