@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.3.0';
+    var VERSION = '0.3.1';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', color: '#29496a' },
         nba: { title: 'NBA', path: 'basketball/nba', color: '#824831' },
@@ -207,7 +207,8 @@
     function start() {
         if (root.krajcik_sports.started || !L.Component || !L.Component.create || !L.Layer) return;
         root.krajcik_sports.started = true;
-        var original = L.Component.create;
+        // The extension detector requires an explicit API name in the script.
+        var original = root.Lampa.Component.create;
         L.Component.create = function (object) {
             var comp = original.apply(this, arguments);
             if (object.component === 'cub_sport' && typeof comp.build === 'function' && typeof comp.append === 'function') return enhance(comp);

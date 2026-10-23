@@ -8,6 +8,10 @@ const now = Date.parse('2026-11-01T00:00:00Z');
 const code = fs.readFileSync(require.resolve('../sports.js'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('the shipped script is recognized by the Lampa extension detector', () => {
+    assert.ok(/Lampa\./.test(code), 'Lampa extension signature is missing');
+});
+
 function boot({ disabled = [], ready = true, source = code } = {}) {
     const jobs = [], rows = [], settings = [], components = [], notices = [];
     let styleCount = 0, readyHandler, searches = 0, plays = 0;
