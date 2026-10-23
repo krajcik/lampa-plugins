@@ -1,0 +1,246 @@
+{
+  "nhl": {
+    "events": [
+      {
+        "id": "401892563",
+        "date": "2026-10-23T02:00Z",
+        "name": "Detroit Red Wings at Vancouver Canucks",
+        "shortName": "DET @ VAN",
+        "competitions": [
+          {
+            "date": "2026-10-23T02:00Z",
+            "type": {
+              "id": "1",
+              "abbreviation": "STD"
+            },
+            "competitors": [
+              {
+                "team": {
+                  "displayName": "Vancouver Canucks",
+                  "shortDisplayName": "Canucks",
+                  "abbreviation": "VAN"
+                }
+              },
+              {
+                "team": {
+                  "displayName": "Detroit Red Wings",
+                  "shortDisplayName": "Red Wings",
+                  "abbreviation": "DET"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "nba": {
+    "events": [
+      {
+        "id": "401909094",
+        "date": "2026-10-23T01:30Z",
+        "name": "Denver Nuggets at Oklahoma City Thunder",
+        "shortName": "DEN @ OKC",
+        "competitions": [
+          {
+            "date": "2026-10-23T01:30Z",
+            "type": {
+              "id": "1",
+              "abbreviation": "STD"
+            },
+            "competitors": [
+              {
+                "team": {
+                  "displayName": "Oklahoma City Thunder",
+                  "shortDisplayName": "Thunder",
+                  "abbreviation": "OKC"
+                }
+              },
+              {
+                "team": {
+                  "displayName": "Denver Nuggets",
+                  "shortDisplayName": "Nuggets",
+                  "abbreviation": "DEN"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "f1": {
+    "events": [
+      {
+        "id": "600057445",
+        "date": "2026-10-09T08:30Z",
+        "endDate": "2026-10-11T12:00Z",
+        "name": "Singapore Airlines Singapore Grand Prix",
+        "shortName": "Singapore Airlines Singapore GP",
+        "circuit": {
+          "id": "740",
+          "fullName": "Marina Bay Street Circuit",
+          "address": {
+            "city": "Singapore",
+            "country": "Singapore"
+          }
+        },
+        "competitions": [
+          {
+            "date": "2026-10-09T08:30Z",
+            "type": {
+              "id": "1",
+              "abbreviation": "FP1"
+            }
+          },
+          {
+            "date": "2026-10-09T12:30Z",
+            "type": {
+              "id": "5",
+              "abbreviation": "SS"
+            }
+          },
+          {
+            "date": "2026-10-10T09:00Z",
+            "type": {
+              "id": "6",
+              "abbreviation": "SR"
+            }
+          },
+          {
+            "date": "2026-10-10T13:30Z",
+            "type": {
+              "id": "2",
+              "abbreviation": "Qual"
+            }
+          },
+          {
+            "date": "2026-10-11T12:00Z",
+            "type": {
+              "id": "3",
+              "abbreviation": "Race"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "ufc": {
+    "events": [
+      {
+        "id": "600060773",
+        "date": "2026-10-17T21:00Z",
+        "name": "UFC Fight Night: Buckley vs. Malott",
+        "shortName": "UFC Fight Night",
+        "competitions": [
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "970",
+              "abbreviation": "Bantamweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "1003",
+              "abbreviation": "W Bantamweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "970",
+              "abbreviation": "Bantamweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "1007",
+              "abbreviation": "W Flyweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "982",
+              "abbreviation": "Heavyweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "972",
+              "abbreviation": "Middleweight"
+            }
+          },
+          {
+            "date": "2026-10-17T21:00Z",
+            "type": {
+              "id": "982",
+              "abbreviation": "Heavyweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "986",
+              "abbreviation": "Lightweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "970",
+              "abbreviation": "Bantamweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "972",
+              "abbreviation": "Middleweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "986",
+              "abbreviation": "Lightweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "1007",
+              "abbreviation": "W Flyweight"
+            }
+          },
+          {
+            "date": "2026-10-18T00:00Z",
+            "type": {
+              "id": "969",
+              "abbreviation": "Welterweight"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "nascar": {
+    "events": [
+      {
+        "id": "202610180053",
+        "date": "2026-10-18T19:00Z",
+        "name": "NASCAR Cup Series at Phoenix",
+        "shortName": "NASCAR Cup Series at Phoenix",
+        "competitions": [
+          {
+            "date": "2026-10-18T19:00Z"
+          }
+        ]
+      }
+    ]
+  }
+}
