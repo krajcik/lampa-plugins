@@ -5,161 +5,181 @@ const vm = require('node:vm');
 const sports = require('../sports.js');
 const fixture = require('./fixtures/espn.json');
 const now = Date.parse('2026-11-01T00:00:00Z');
-const hash = '0123456789abcdef0123456789abcdef01234567';
-function release(Title, extra = {}) {
-    return { Title, MagnetUri: 'magnet:?xt=urn:btih:' + hash + '&dn=SECRET_RESULT', Seeders: 2, ...extra };
-}
-function match(event, title, part = event.parts[0]) { return sports.matches(event, part, release(title)); }
+const code = fs.readFileSync(require.resolve('../sports.js'), 'utf8');
+const tick = () => new Promise(resolve => setImmediate(resolve));
 
-test('calendar keeps one F1 weekend and the individual session times, never score fields', () => {
+function boot({ disabled = [], ready = true, source = code } = {}) {
+    const jobs = [], rows = [], settings = [], components = [], notices = [];
+    let styleCount = 0, readyHandler, searches = 0, plays = 0;
+    function original(object) {
+        const comp = { rows: [], loader: [], destroyed: false, activity: { loader: value => comp.loader.push(value) },
+            create() { comp.activity.loader(true); return comp; },
+            build(data) { comp.rows.push(...data); }, append(row) { comp.rows.push(row); },
+            empty() { comp.emptyCalled = true; return 'native empty'; },
+            queryText: 'Уточнить', find() { return { eq() { return { text(value) { comp.queryText = value; } }; } }; },
+            render() { return comp; }, destroy() { comp.destroyed = true; }
+        };
+        components.push({ object, comp }); return comp;
+    }
+    const Lampa = {
+        Component: { create: original }, Layer: { update() {}, visible() {} },
+        ContentRows: { add: row => rows.push(row) }, Maker: {},
+        Parser: { get() { searches++; } }, Torrent: { start() { plays++; } },
+        SettingsApi: { addComponent() {}, addParam: p => settings.push(p) },
+        Storage: { get: key => !disabled.includes(key.replace('krajcik_sports_', '')) },
+        Listener: { follow(name, fn) { readyHandler = fn; } },
+        Noty: { show: value => notices.push(value) },
+        Reguest: function () {
+            const job = { cleared: 0 };
+            this.timeout = () => {};
+            this.clear = () => { job.cleared++; };
+            this.native = (url, done, fail) => { Object.assign(job, { url, done, fail }); jobs.push(job); };
+        }
+    };
+    const FixedDate = class extends Date {
+        constructor(...args) { super(...(args.length ? args : ['2026-10-24T12:00:00Z'])); }
+        static now() { return Date.parse('2026-10-24T12:00:00Z'); }
+    };
+    const window = { appready: ready, Lampa };
+    const context = vm.createContext({ window, document: { createElement: () => ({}), head: { appendChild() { styleCount++; } } }, Date: FixedDate, URL, Set, Promise, console });
+    vm.runInContext(source, context);
+    return { Lampa, window, context, jobs, rows, settings, components, notices, original,
+        ready() { readyHandler({ type: 'ready' }); },
+        counts() { return { searches, plays, styleCount }; }
+    };
+}
+
+test('F1 keeps weekend grouping and exact session times without results or descriptions', () => {
     const raw = structuredClone(fixture.f1);
     raw.events[0].highlights = [{ title: 'SECRET_WINNER' }];
-    raw.events[0].competitions[0].competitors = [{ winner: true, score: 'SECRET_SCORE' }];
+    raw.events[0].competitions[0].competitors = [{ score: 'SECRET_SCORE', winner: true }];
     const [event] = sports.schedule('f1', raw, now);
     assert.equal(event.title, 'Гран-при: Singapore');
     assert.equal(event.parts.length, 5);
     assert.equal(event.parts.find(p => p.id === 'Race').date, '2026-10-11T12:00Z');
-    assert.equal(event.parts.find(p => p.id === 'FP1').date, '2026-10-09T08:30Z');
     assert.equal(event.parts.find(p => p.id === 'SQ').date, '2026-10-09T12:30Z');
     assert.equal(event.parts.find(p => p.id === 'Sprint').date, '2026-10-10T09:00Z');
-    assert.doesNotMatch(JSON.stringify(event), /SECRET|winner|score|highlights/);
+    assert.doesNotMatch(JSON.stringify(event), /SECRET|score|winner|highlights/);
 });
 
-test('UFC is one tournament; unverified segment times stay unknown', () => {
+test('team logos survive normalization, but unsafe image schemes and malformed events do not', () => {
+    const raw = structuredClone(fixture.nba);
+    const teams = raw.events[0].competitions[0].competitors;
+    teams[0].team.logo = 'https://example.org/team.png';
+    teams[1].team.logo = 'javascript:alert(1)';
+    const [event] = sports.schedule('nba', raw, now);
+    assert.equal(event.teams[0].logo, 'https://example.org/team.png');
+    assert.equal(event.teams[1].logo, '');
+    assert.equal(sports.image('https://user:secret@example.org/x'), '');
+    assert.deepEqual(sports.schedule('nba', raw, Date.parse('2025-01-01')), []);
+    assert.deepEqual(sports.schedule('nba', { events: [{ ...raw.events[0], date: 'unknown' }, { ...raw.events[0], competitions: [] }] }, now), []);
+});
+
+test('UFC groups parts under one tournament and does not invent segment times', () => {
     const [event] = sports.schedule('ufc', fixture.ufc, now);
-    assert.equal(event.title, 'UFC Fight Night: Buckley vs. Malott');
     assert.deepEqual(event.parts.map(p => p.id), ['full', 'main', 'prelims', 'early']);
     assert.equal(event.parts[0].date, event.date);
     assert.ok(event.parts.slice(1).every(p => !p.date));
 });
 
-test('future, canceled, missing-date and incomplete team events are omitted', () => {
-    const event = fixture.nhl.events[0];
-    assert.deepEqual(sports.schedule('nhl', { events: [event] }, Date.parse('2025-01-01')), []);
-    assert.deepEqual(sports.schedule('nhl', { events: [{ ...event, status: { type: { name: 'STATUS_CANCELED' } } }] }, now), []);
-    assert.deepEqual(sports.schedule('nhl', { events: [{ ...event, date: 'unknown' }, { ...event, competitions: [] }] }, now), []);
-});
-
-test('NHL matches both teams and the local date across midnight; wrong opponents and leagues fail', () => {
-    const [event] = sports.schedule('nhl', fixture.nhl, now);
-    assert.ok(match(event, 'NHL 26/27. Детройт — Ванкувер [22.10.2026, RU, 1080p]'));
-    assert.ok(match(event, 'NHL. Detroit Red Wings @ Vancouver Canucks [2026-10-23, EN]'));
-    assert.ok(!match(event, 'NHL. Detroit Red Wings @ Boston Bruins [22.10.2026]'));
-    assert.ok(!match(event, 'NBA. Детройт — Ванкувер [22.10.2026]'));
-    assert.ok(!match(event, 'NHL. Детройт — Ванкувер [22.09.2026]'));
-});
-
-test('accepts the fresh index date format DD.MM followed by a separate year', () => {
-    const [event] = sports.schedule('nhl', fixture.nhl, now);
-    assert.ok(match(event, 'Хоккей. NHL 26/27, RS. Detroit Red Wings @ Vancouver Canucks [22.10] (2026) WEBRip 1080p'));
-    assert.ok(!match(event, 'Хоккей. NHL 25/26, RS. Detroit Red Wings @ Vancouver Canucks [22.10] (2025) WEBRip 1080p'));
-});
-
-test('NBA Russian aliases match a full recording but not a video game or recap', () => {
-    const [event] = sports.schedule('nba', fixture.nba, now);
-    assert.ok(match(event, 'НБА. Денвер — Оклахома [22.10.2026, RU]'));
-    assert.ok(!match(event, 'NBA 2K27. Денвер — Оклахома [22.10.2026]'));
-    assert.ok(!match(event, 'NBA. Денвер — Оклахома. Обзор [22.10.2026]'));
-});
-
-test('F1 never substitutes qualification, another GP, or a sprint for the race', () => {
+test('choosing an event produces an editable native torrent search, never a player route', () => {
+    for (const sport of Object.keys(sports.SPORTS)) {
+        const [event] = sports.schedule(sport, fixture[sport], now);
+        const route = sports.searchParams(event, event.parts[0]);
+        assert.equal(route.component, 'torrents');
+        assert.equal(route.from_search, true);
+        assert.ok(route.search);
+        assert.ok(route.movie.names.length >= 2);
+        assert.ok(!route.url && !route.MagnetUri && !route.autostart);
+    }
     const [event] = sports.schedule('f1', fixture.f1, now);
-    const race = event.parts.find(p => p.id === 'Race');
-    const qual = event.parts.find(p => p.id === 'Qual');
-    const sprint = event.parts.find(p => p.id === 'Sprint');
-    const sprintQual = event.parts.find(p => p.id === 'SQ');
-    assert.ok(match(event, 'Формула 1. Сингапур. Гонка [11.10.2026] RU', race));
-    assert.ok(match(event, 'Formula.1.2026.Singapore.Race [11.10.2026] EN', race));
-    assert.ok(match(event, 'Formula.1.2026x17.Singapore.Race.F1TV.1080p', race));
-    assert.ok(!match(event, 'Formula.1.2025x17.Singapore.Race.F1TV.1080p', race));
-    assert.ok(!match(event, 'Формула 1. Сингапур. Квалификация [10.10.2026]', race));
-    assert.ok(!match(event, 'Формула 1. Япония. Гонка [11.10.2026]', race));
-    assert.ok(!match(event, 'Формула 1. Сингапур. Спринт гонка [11.10.2026]', race));
-    assert.ok(!match(event, 'Формула 1. Сингапур. Квалификация спринта [10.10.2026]', qual));
-    assert.ok(match(event, 'Formula.1.2026x17.Singapore.Sprint.Qualifying.F1TV.1080p', sprintQual));
-    assert.ok(!match(event, 'Formula.1.2026x17.Singapore.Sprint.Qualifying.F1TV.1080p', sprint));
+    assert.match(sports.searchParams(event, event.parts.find(p => p.id === 'Qual')).search, /2026 Singapore Qual/);
 });
 
-test('UFC numbers and card segments are checked independently', () => {
-    const event = { sport: 'ufc', title: 'UFC 400', number: '400', date: '2026-10-17T21:00Z' };
-    assert.ok(match(event, 'UFC 400. Main Card. RU', { id: 'main' }));
-    assert.ok(!match(event, 'UFC 401. Main Card. RU', { id: 'main' }));
-    assert.ok(!match(event, 'UFC 400. Early Prelims. RU', { id: 'prelims' }));
-    assert.ok(match(event, 'UFC 400. Early Prelims. RU', { id: 'early' }));
-    assert.ok(!match(event, 'UFC 400. Highlights', { id: 'main' }));
-    assert.ok(match(event, 'UFC 400. Full Event. RU', { id: 'full' }));
-    assert.ok(!match(event, 'UFC 400. Full Event. RU', { id: 'main' }));
+test('native CUB titles/time map to a search without retaining signed live URLs', () => {
+    const data = { id: 4651, title: 'НБА. Вашингтон - Торонто (RU)', time_start: 1792794600000, streams: { hls: 'SECRET_SIGNED_URL' }, description: 'SECRET_RESULT' };
+    const event = sports.nativeEvent(data);
+    assert.equal(event.sport, 'nba');
+    assert.equal(event.title, 'НБА. Вашингтон - Торонто');
+    assert.equal(event.date, '2026-10-23T22:30:00.000Z');
+    assert.doesNotMatch(JSON.stringify(event), /SECRET|streams|description/);
+    assert.equal(sports.nativeEvent({ ...data, time_start: 1e100 }), null);
+    assert.equal(sports.nativeEvent({ ...data, title: 'АПЛ. Футбол' }), null);
 });
 
-test('NASCAR Cup does not select the Xfinity series at the same venue', () => {
-    const [event] = sports.schedule('nascar', fixture.nascar, now);
-    assert.ok(match(event, 'NASCAR Cup. Финикс [18.10.2026] RU'));
-    assert.ok(!match(event, 'NASCAR Xfinity. Финикс [18.10.2026] RU'));
-    assert.ok(!match(event, 'NASCAR Cup. Дейтона [18.10.2026] RU'));
+test('home has no sports rows, calendar requests, parser calls or playback', () => {
+    const env = boot();
+    const main = env.Lampa.Component.create({ component: 'main' }); main.create();
+    assert.equal(main, env.components[0].comp);
+    assert.equal(env.rows.length, 0);
+    assert.equal(env.jobs.length, 0);
+    assert.equal(env.counts().searches, 0);
+    assert.equal(env.counts().plays, 0);
 });
 
-test('recordings deduplicate magnets and prefer RU; launch metadata contains no source spoiler', () => {
-    const [event] = sports.schedule('nba', fixture.nba, now);
-    const ru = release('NBA Денвер — Оклахома [22.10.2026] RU', { Seeders: 1 });
-    const en = release('NBA Denver Nuggets — Oklahoma City Thunder [22.10.2026] EN', { MagnetUri: 'magnet:?xt=urn:btih:' + 'b'.repeat(40), Seeders: 100 });
-    assert.deepEqual(sports.recordings(event, event.parts[0], [en, ru, { ...ru }]), [ru, en]);
-    const uri = sports.magnet(ru, 'Безопасное название');
-    assert.doesNotMatch(uri, /SECRET_RESULT/);
-    assert.match(uri, new RegExp(encodeURIComponent('Безопасное название')));
-    assert.equal(sports.magnet({ Link: 'javascript:alert(1)' }, 'Title'), '');
-    assert.equal(sports.magnet({ MagnetUri: 'magnet:?xt=urn:btih:bad' }, 'Title'), '');
+test('empty sports search keeps its query visible and does not alter ordinary torrent searches', () => {
+    const env = boot();
+    const comp = env.Lampa.Component.create({ component: 'torrents', search: '<query>', krajcik_sports: true });
+    assert.equal(comp.empty(), 'native empty');
+    assert.equal(comp.queryText, 'Поиск: <query>');
+    const ordinary = env.Lampa.Component.create({ component: 'torrents', search: 'movie' }); ordinary.empty();
+    assert.equal(ordinary.queryText, 'Уточнить');
 });
 
-test('the catalog only includes events with recordings and keeps availability per session', () => {
-    const events = sports.schedule('f1', fixture.f1, now);
-    assert.equal(sports.available(events, []).length, 0);
-    const found = sports.available(events, [release('Formula.1.2026.Singapore.Race [11.10.2026] EN')]);
-    assert.equal(found.length, 1);
-    assert.equal(found[0].parts.find(p => p.id === 'Race').recordings.length, 1);
-    assert.equal(found[0].parts.find(p => p.id === 'Qual').recordings.length, 0);
-    assert.ok(sports.queries('nba', 2026).includes('NBA 2026'));
-    assert.ok(sports.queries('f1', 2026).includes('Formula 1 2026'));
+test('native sport is interactive while calendars are pending and rows arrive independently', async () => {
+    const env = boot();
+    const comp = env.Lampa.Component.create({ component: 'cub_sport' }); comp.create();
+    await tick();
+    assert.equal(comp.rows.length, 1);
+    assert.equal(comp.rows[0].results.length, 5);
+    assert.equal(comp.loader.at(-1), false);
+    assert.equal(env.jobs.length, 5);
+    assert.ok(env.jobs.every(j => j.url.startsWith('https://site.api.espn.com/')));
+    assert.equal(env.counts().searches, 0);
+    env.jobs.find(j => j.url.includes('/hockey/nhl/')).done(fixture.nhl);
+    await tick();
+    assert.equal(comp.rows.length, 2);
+    assert.match(comp.rows[1].title, /NHL/);
+    assert.equal(env.jobs.filter(j => j.cleared).length, 1);
+    assert.equal(env.counts().searches, 0);
+    comp.destroy(); await tick();
 });
 
-test('loading twice and repeated appready register only five namespaced rows/settings', () => {
-    const rows = [], settings = []; let ready;
-    const window = { appready: false, Lampa: {
-        ContentRows: { add: row => rows.push(row) }, Maker: {}, Parser: {},
-        Listener: { follow: (name, fn) => { ready = fn; } },
-        SettingsApi: { addComponent() {}, addParam: param => settings.push(param) }
-    } };
-    const context = vm.createContext({ window, Set, Promise, console });
-    const code = fs.readFileSync(require.resolve('../sports.js'), 'utf8');
-    vm.runInContext(code, context); vm.runInContext(code, context);
-    ready({ type: 'ready' }); ready({ type: 'ready' });
-    assert.equal(rows.length, 5); assert.equal(settings.length, 5);
-    assert.equal(new Set(rows.map(r => r.name)).size, 5);
-    assert.ok(settings.every(s => s.param.name.startsWith('krajcik_sports_')));
+test('leaving sport cancels its requests and late responses cannot append rows or poison re-entry', async () => {
+    const env = boot();
+    const comp = env.Lampa.Component.create({ component: 'cub_sport' }); comp.create(); await tick();
+    comp.destroy();
+    env.jobs.forEach(j => j.done(fixture.nhl)); await tick();
+    assert.equal(comp.destroyed, true);
+    assert.equal(comp.rows.length, 1);
+    assert.equal(env.notices.length, 0);
+    assert.ok(env.jobs.every(j => j.cleared === 1));
+    const again = env.Lampa.Component.create({ component: 'cub_sport' }); again.create(); await tick();
+    assert.equal(env.jobs.length, 10);
+    again.destroy(); await tick();
 });
 
-test('a prechecked card launches directly and keeps the home controller for return', async () => {
-    const rows = [], launched = []; let controller = 'content', parserCalls = 0;
-    const FixedDate = class extends Date {
-        constructor(...args) { super(...(args.length ? args : ['2026-10-24T12:00:00Z'])); }
-        static now() { return Date.parse('2026-10-24T12:00:00Z'); }
-    };
-    const Lampa = {
-        ContentRows: { add: row => rows.push(row) },
-        SettingsApi: { addComponent() {}, addParam() {} }, Storage: { get: () => true },
-        Maker: { module: () => ({ only: () => 1 }) },
-        Reguest: function () { this.timeout = () => {}; this.clear = () => {}; this.native = (url, done) => done(fixture.nhl); },
-        Controller: { toggle: name => { controller = name; } },
-        Modal: { open() { controller = 'modal'; }, close() {} },
-        Parser: { get(params, done) { parserCalls++; done({ Results: [release('NHL. Детройт — Ванкувер [22.10.2026] RU')] }); } },
-        Torrent: { back() {}, start(record) { launched.push({ record, controller }); } }
-    };
-    const context = vm.createContext({ window: { Lampa, appready: true }, Date: FixedDate, Set, Promise, console, $: () => ({ text() { return this; } }) });
-    vm.runInContext(fs.readFileSync(require.resolve('../sports.js'), 'utf8'), context);
-    const line = await new Promise(resolve => rows[0].call()(resolve));
-    const beforeClick = parserCalls;
-    line.results[0].params.emit.onlyEnter();
-    assert.equal(launched.length, 1);
-    assert.equal(launched[0].controller, 'content');
-    assert.equal(parserCalls, beforeClick);
-    assert.doesNotMatch(launched[0].record.MagnetUri, /SECRET_RESULT/);
+test('a malformed calendar response cannot block the other sports or leave the page loading', async () => {
+    const env = boot();
+    const comp = env.Lampa.Component.create({ component: 'cub_sport' }); comp.create(); await tick();
+    assert.doesNotThrow(() => env.jobs.find(j => j.url.includes('/basketball/nba/')).done(null));
+    env.jobs.find(j => j.url.includes('/hockey/nhl/')).done(fixture.nhl); await tick();
+    assert.equal(comp.rows.length, 2);
+    assert.match(comp.rows[1].title, /NHL/);
+    assert.equal(comp.loader.at(-1), false);
+    assert.equal(env.notices.length, 1);
+    comp.destroy(); await tick();
+});
+
+test('disabled sports do not load and repeated appready/script loads register only once', async () => {
+    const env = boot({ disabled: ['nhl', 'ufc', 'f1', 'nascar'], ready: false });
+    vm.runInContext(code, env.context);
+    env.ready(); const wrapper = env.Lampa.Component.create; env.ready();
+    assert.equal(env.Lampa.Component.create, wrapper);
+    assert.equal(env.settings.length, 5);
+    assert.equal(env.counts().styleCount, 1);
+    const comp = env.Lampa.Component.create({ component: 'cub_sport' }); comp.create(); await tick();
+    assert.equal(env.jobs.length, 1);
+    assert.match(env.jobs[0].url, /basketball\/nba/);
+    comp.destroy(); await tick();
 });
