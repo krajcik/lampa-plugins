@@ -28,8 +28,9 @@ test('calendar keeps one F1 weekend and the individual session times, never scor
 test('UFC is one tournament; unverified segment times stay unknown', () => {
     const [event] = sports.schedule('ufc', fixture.ufc, now);
     assert.equal(event.title, 'UFC Fight Night: Buckley vs. Malott');
-    assert.deepEqual(event.parts.map(p => p.id), ['main', 'prelims', 'early']);
-    assert.ok(event.parts.every(p => !p.date));
+    assert.deepEqual(event.parts.map(p => p.id), ['full', 'main', 'prelims', 'early']);
+    assert.equal(event.parts[0].date, event.date);
+    assert.ok(event.parts.slice(1).every(p => !p.date));
 });
 
 test('future, canceled, missing-date and incomplete team events are omitted', () => {
@@ -48,6 +49,12 @@ test('NHL matches both teams and the local date across midnight; wrong opponents
     assert.ok(!match(event, 'NHL. Детройт — Ванкувер [22.09.2026]'));
 });
 
+test('accepts the fresh index date format DD.MM followed by a separate year', () => {
+    const [event] = sports.schedule('nhl', fixture.nhl, now);
+    assert.ok(match(event, 'Хоккей. NHL 26/27, RS. Detroit Red Wings @ Vancouver Canucks [22.10] (2026) WEBRip 1080p'));
+    assert.ok(!match(event, 'Хоккей. NHL 25/26, RS. Detroit Red Wings @ Vancouver Canucks [22.10] (2025) WEBRip 1080p'));
+});
+
 test('NBA Russian aliases match a full recording but not a video game or recap', () => {
     const [event] = sports.schedule('nba', fixture.nba, now);
     assert.ok(match(event, 'НБА. Денвер — Оклахома [22.10.2026, RU]'));
@@ -59,11 +66,18 @@ test('F1 never substitutes qualification, another GP, or a sprint for the race',
     const [event] = sports.schedule('f1', fixture.f1, now);
     const race = event.parts.find(p => p.id === 'Race');
     const qual = event.parts.find(p => p.id === 'Qual');
+    const sprint = event.parts.find(p => p.id === 'Sprint');
+    const sprintQual = event.parts.find(p => p.id === 'SQ');
     assert.ok(match(event, 'Формула 1. Сингапур. Гонка [11.10.2026] RU', race));
+    assert.ok(match(event, 'Formula.1.2026.Singapore.Race [11.10.2026] EN', race));
+    assert.ok(match(event, 'Formula.1.2026x17.Singapore.Race.F1TV.1080p', race));
+    assert.ok(!match(event, 'Formula.1.2025x17.Singapore.Race.F1TV.1080p', race));
     assert.ok(!match(event, 'Формула 1. Сингапур. Квалификация [10.10.2026]', race));
     assert.ok(!match(event, 'Формула 1. Япония. Гонка [11.10.2026]', race));
     assert.ok(!match(event, 'Формула 1. Сингапур. Спринт гонка [11.10.2026]', race));
     assert.ok(!match(event, 'Формула 1. Сингапур. Квалификация спринта [10.10.2026]', qual));
+    assert.ok(match(event, 'Formula.1.2026x17.Singapore.Sprint.Qualifying.F1TV.1080p', sprintQual));
+    assert.ok(!match(event, 'Formula.1.2026x17.Singapore.Sprint.Qualifying.F1TV.1080p', sprint));
 });
 
 test('UFC numbers and card segments are checked independently', () => {
@@ -73,6 +87,8 @@ test('UFC numbers and card segments are checked independently', () => {
     assert.ok(!match(event, 'UFC 400. Early Prelims. RU', { id: 'prelims' }));
     assert.ok(match(event, 'UFC 400. Early Prelims. RU', { id: 'early' }));
     assert.ok(!match(event, 'UFC 400. Highlights', { id: 'main' }));
+    assert.ok(match(event, 'UFC 400. Full Event. RU', { id: 'full' }));
+    assert.ok(!match(event, 'UFC 400. Full Event. RU', { id: 'main' }));
 });
 
 test('NASCAR Cup does not select the Xfinity series at the same venue', () => {
@@ -94,6 +110,17 @@ test('recordings deduplicate magnets and prefer RU; launch metadata contains no 
     assert.equal(sports.magnet({ MagnetUri: 'magnet:?xt=urn:btih:bad' }, 'Title'), '');
 });
 
+test('the catalog only includes events with recordings and keeps availability per session', () => {
+    const events = sports.schedule('f1', fixture.f1, now);
+    assert.equal(sports.available(events, []).length, 0);
+    const found = sports.available(events, [release('Formula.1.2026.Singapore.Race [11.10.2026] EN')]);
+    assert.equal(found.length, 1);
+    assert.equal(found[0].parts.find(p => p.id === 'Race').recordings.length, 1);
+    assert.equal(found[0].parts.find(p => p.id === 'Qual').recordings.length, 0);
+    assert.ok(sports.queries('nba', 2026).includes('NBA 2026'));
+    assert.ok(sports.queries('f1', 2026).includes('Formula 1 2026'));
+});
+
 test('loading twice and repeated appready register only five namespaced rows/settings', () => {
     const rows = [], settings = []; let ready;
     const window = { appready: false, Lampa: {
@@ -110,8 +137,8 @@ test('loading twice and repeated appready register only five namespaced rows/set
     assert.ok(settings.every(s => s.param.name.startsWith('krajcik_sports_')));
 });
 
-test('launch restores the home controller before leaving for an external player', async () => {
-    const rows = [], launched = []; let controller = 'content';
+test('a prechecked card launches directly and keeps the home controller for return', async () => {
+    const rows = [], launched = []; let controller = 'content', parserCalls = 0;
     const FixedDate = class extends Date {
         constructor(...args) { super(...(args.length ? args : ['2026-10-24T12:00:00Z'])); }
         static now() { return Date.parse('2026-10-24T12:00:00Z'); }
@@ -123,14 +150,16 @@ test('launch restores the home controller before leaving for an external player'
         Reguest: function () { this.timeout = () => {}; this.clear = () => {}; this.native = (url, done) => done(fixture.nhl); },
         Controller: { toggle: name => { controller = name; } },
         Modal: { open() { controller = 'modal'; }, close() {} },
-        Parser: { get(params, done) { done({ Results: [release('NHL. Детройт — Ванкувер [22.10.2026] RU')] }); } },
+        Parser: { get(params, done) { parserCalls++; done({ Results: [release('NHL. Детройт — Ванкувер [22.10.2026] RU')] }); } },
         Torrent: { back() {}, start(record) { launched.push({ record, controller }); } }
     };
     const context = vm.createContext({ window: { Lampa, appready: true }, Date: FixedDate, Set, Promise, console, $: () => ({ text() { return this; } }) });
     vm.runInContext(fs.readFileSync(require.resolve('../sports.js'), 'utf8'), context);
     const line = await new Promise(resolve => rows[0].call()(resolve));
+    const beforeClick = parserCalls;
     line.results[0].params.emit.onlyEnter();
     assert.equal(launched.length, 1);
     assert.equal(launched[0].controller, 'content');
+    assert.equal(parserCalls, beforeClick);
     assert.doesNotMatch(launched[0].record.MagnetUri, /SECRET_RESULT/);
 });

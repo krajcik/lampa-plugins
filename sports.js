@@ -1,7 +1,7 @@
 (function (root) {
     'use strict';
 
-    var VERSION = '0.1.2';
+    var VERSION = '0.2.0';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', queries: ['NHL', 'НХЛ'], color: '#395d88' },
         nba: { title: 'NBA', path: 'basketball/nba', queries: ['NBA', 'НБА'], color: '#96532f' },
@@ -47,9 +47,9 @@
         ['Gateway', 'Гейтвей'], ['Iowa', 'Айова'], ['San Diego', 'Сан Диего']
     ];
     var SESSION = {
-        FP1: ['Тренировка 1', /(?:practice|практик|тренировк|свободн\w*\s+заезд)[^\d]{0,20}1|\bfp\s*1\b/i],
-        FP2: ['Тренировка 2', /(?:practice|практик|тренировк|свободн\w*\s+заезд)[^\d]{0,20}2|\bfp\s*2\b/i],
-        FP3: ['Тренировка 3', /(?:practice|практик|тренировк|свободн\w*\s+заезд)[^\d]{0,20}3|\bfp\s*3\b/i],
+        FP1: ['Тренировка 1', /(?:practice|практик|тренировк|свободн[^\d]{0,20}заезд)[^\d]{0,20}1|\bfp\s*1\b/i],
+        FP2: ['Тренировка 2', /(?:practice|практик|тренировк|свободн[^\d]{0,20}заезд)[^\d]{0,20}2|\bfp\s*2\b/i],
+        FP3: ['Тренировка 3', /(?:practice|практик|тренировк|свободн[^\d]{0,20}заезд)[^\d]{0,20}3|\bfp\s*3\b/i],
         Qual: ['Квалификация', /qualif|квалификац/i],
         SQ: ['Квалификация спринта', /sprint\s*(?:shootout|qual)|спринт.{0,18}квалиф|квалиф.{0,18}спринт/i],
         Sprint: ['Спринт', /sprint|спринт/i],
@@ -61,7 +61,7 @@
     function aliases(value) {
         var result = [value];
         PLACES.forEach(function (place) {
-            if (text(value).indexOf(text(place[0])) >= 0) result = result.concat(place[1].split('|'));
+            if (text(value).indexOf(text(place[0])) >= 0) result = result.concat([place[0]], place[1].split('|'));
         });
         return unique(result.map(text));
     }
@@ -86,7 +86,9 @@
             } else if (sport === 'f1') {
                 var place = e.circuit && e.circuit.address && (e.circuit.address.city || e.circuit.address.country);
                 event.title = 'Гран-при: ' + String(place || e.shortName || e.name || 'Formula 1');
-                event.aliases = unique(aliases((e.circuit && e.circuit.address && e.circuit.address.country) || '').concat(aliases(place || ''), aliases(e.name || '')));
+                var country = (e.circuit && e.circuit.address && e.circuit.address.country) || '';
+                if (/las vegas/i.test(e.name || '')) country = 'Las Vegas';
+                event.aliases = unique(aliases(country).concat(aliases(place || ''), aliases(e.name || '')));
                 competitions.forEach(function (c) {
                     var key = c.type && c.type.abbreviation;
                     if (key === 'SS' || key === 'Sprint Qualifying') key = 'SQ';
@@ -99,6 +101,7 @@
                 event.number = (event.title.match(/\bUFC\s+(\d{2,4})\b/i) || [])[1] || '';
                 event.fighters = (event.title.split(/:\s*/)[1] || '').split(/\s+vs\.?\s+/i).map(text);
                 event.parts = [
+                    { id: 'full', title: 'Полный турнир', date: e.date },
                     { id: 'main', title: 'Основной кард' },
                     { id: 'prelims', title: 'Прелимы' },
                     { id: 'early', title: 'Ранние прелимы' }
@@ -115,6 +118,7 @@
     }
     function dateMatches(title, date) {
         var found = [], pattern = /\b(\d{1,4})[.\/-](\d{1,2})[.\/-](\d{2,4})\b/g, m;
+        title = title.replace(/\[(\d{1,2})[.\/-](\d{1,2})\]\s*\(((?:19|20)\d{2})\)/g, '$1.$2.$3');
         while ((m = pattern.exec(title))) {
             var y = m[1].length === 4 ? +m[1] : +m[3];
             if (y < 100) y += 2000;
@@ -144,13 +148,18 @@
             if (!/\bufc\b/i.test(title)) return false;
             var number = (title.match(/\bUFC\s+(\d{2,4})\b/i) || [])[1];
             if (event.number ? number !== event.number : !dateMatches(title, event.date) || event.fighters.length !== 2 || !event.fighters.every(function (f) { return normalized.indexOf(f) >= 0; })) return false;
+            var full = /full[ ._-]*event|полный\s*турнир|весь\s*турнир/i.test(title);
+            if (part.id === 'full') return full;
+            if (full) return false;
             var early = /early|ранни/i.test(title), prelims = /prelim|прелим|предварительн/i.test(title);
             return part.id === 'early' ? early && prelims : part.id === 'prelims' ? prelims && !early : !prelims;
         }
-        if (!dateMatches(title, part.date || event.date) || !hasAlias(normalized, event.aliases)) return false;
-        if (event.sport === 'nascar') return /nascar|наскар/i.test(title) && !/xfinity|o.?reilly|craftsman|truck|трак|иксфинити|квалификац|qualif|practice|практик|тренировк/i.test(title);
-        if (!/formula\s*1|формула\s*1|\bf1\b/i.test(title) || !SESSION[part.id][1].test(title)) return false;
-        var sprintQual = SESSION.SQ[1].test(title), sprint = SESSION.Sprint[1].test(title);
+        var hasDate = /\b\d{1,4}[.\/-]\d{1,2}[.\/-]\d{2,4}\b|\[\d{1,2}[.\/-]\d{1,2}\]/.test(title);
+        var season = event.sport === 'f1' && !hasDate && new RegExp('(?:^|\\D)' + new Date(event.date).getUTCFullYear() + '(?:\\D|$)').test(title);
+        if ((!dateMatches(title, part.date || event.date) && !season) || !hasAlias(normalized, event.aliases)) return false;
+        if (event.sport === 'nascar') return /nascar|наскар/i.test(title) && !/xfinity|o.?reilly.{0,20}series|craftsman|truck|трак|иксфинити|квалификац|qualif|practice|практик|тренировк/i.test(title);
+        if (!/formula[ ._-]*1|формула[ ._-]*1|\bf1\b/i.test(title) || !SESSION[part.id][1].test(normalized)) return false;
+        var sprintQual = SESSION.SQ[1].test(normalized), sprint = SESSION.Sprint[1].test(normalized);
         if (part.id === 'Qual' && sprint) return false;
         if (part.id === 'Sprint' && sprintQual) return false;
         if (part.id === 'Race' && /qualif|квалификац|sprint|спринт|practice|практик|тренировк|свободн/i.test(title)) return false;
@@ -168,18 +177,31 @@
             return rank(b) - rank(a);
         });
     }
-    var core = { SPORTS: SPORTS, schedule: schedule, matches: matches, recordings: recordings, magnet: magnet, monthKey: monthKey };
+    function queries(sport, year) {
+        if (sport === 'nba') return ['NBA ' + year, 'НБА'];
+        if (sport === 'f1') return ['Formula 1 ' + year, 'Формула 1'];
+        if (sport === 'nascar') return ['NASCAR Cup Series ' + year, 'NASCAR'];
+        return SPORTS[sport].queries;
+    }
+    function available(events, results) {
+        return events.map(function (event) {
+            return Object.assign({}, event, { parts: event.parts.map(function (part) {
+                return Object.assign({}, part, { recordings: recordings(event, part, results) });
+            }) });
+        }).filter(function (event) { return event.parts.some(function (part) { return part.recordings.length; }); });
+    }
+    var core = { SPORTS: SPORTS, schedule: schedule, matches: matches, recordings: recordings, available: available, queries: queries, magnet: magnet, monthKey: monthKey };
     if (typeof module !== 'undefined' && module.exports) module.exports = core;
     if (!root || !root.Lampa || root.krajcik_sports) return;
     root.krajcik_sports = { version: VERSION };
 
-    var L = root.Lampa, cache = {}, pending = {}, networks = new Set();
+    var L = root.Lampa, cache = {}, pending = {}, recordCache = {}, recordPending = {};
     function escape(value) { return String(value).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
     function stamp(date) { return new Date(date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
     function request(url) {
         return new Promise(function (resolve, reject) {
-            var net = new L.Reguest(); networks.add(net); net.timeout(15000);
-            function end(fn, data) { networks.delete(net); net.clear(); fn(data); }
+            var net = new L.Reguest(); net.timeout(15000);
+            function end(fn, data) { net.clear(); fn(data); }
             net.native(url, function (data) { end(resolve, data); }, function () { end(reject, new Error('Источник расписания недоступен')); });
         });
     }
@@ -193,6 +215,32 @@
         }).finally(function () { delete pending[key]; });
         return pending[key];
     }
+    function loadRecords(sport, year) {
+        var key = sport + year;
+        if (recordCache[key] && Date.now() - recordCache[key].at < 600000) return Promise.resolve(recordCache[key].results);
+        if (recordPending[key]) return recordPending[key];
+        var tasks = [], successful = 0;
+        queries(sport, year).forEach(function (query) {
+            tasks.push(new Promise(function (resolve) {
+                L.Parser.get({ search: query, from_search: true, other: true }, function (data) { successful++; resolve(data.Results || []); }, function () { resolve([]); });
+            }));
+            tasks.push(request('https://lampa.app/api/v2.0/indexers/all/results?apikey=&Query=' + encodeURIComponent(query)).then(function (data) {
+                if (!Array.isArray(data.Results)) throw new Error('Неизвестный формат парсера');
+                successful++; return data.Results;
+            }).catch(function () { return []; }));
+        });
+        recordPending[key] = Promise.all(tasks).then(function (groups) {
+            if (!successful) throw new Error('Источники записей недоступны');
+            var results = groups.flat(); recordCache[key] = { at: Date.now(), results: results }; return results;
+        }).finally(function () { delete recordPending[key]; });
+        return recordPending[key];
+    }
+    function catalog(sport, month) {
+        return load(sport, month).then(function (events) {
+            if (!events.length) return [];
+            return loadRecords(sport, Number(month.slice(0, 4))).then(function (results) { return available(events, results); });
+        });
+    }
     function restore() { L.Controller.toggle('content'); }
     function message(value) { L.Noty.show(value); restore(); }
     function poster(sport) {
@@ -201,18 +249,21 @@
     function card(event) {
         var grouped = event.sport === 'f1' || event.sport === 'ufc';
         var date = grouped && event.sport === 'f1' ? stamp(event.date).split(',')[0] + ' — ' + stamp(event.end).split(',')[0] : stamp(event.date);
+        var ru = event.parts.some(function (p) { return (p.recordings || []).some(function (r) { return russian(r.Title); }); });
         return {
-            title: event.title, cover: poster(event.sport), overview: date,
+            title: event.title, cover: poster(event.sport), overview: date + (event.parts.length ? ' · запись найдена' + (ru ? ' · RU' : '') : ''),
             params: { style: { name: 'wide' }, module: L.Maker.module('Card').only('Card', 'Style', 'Callback'), emit: {
                 onlyEnter: function () { choose(event); }, onlyLong: function () { choose(event, true); }
             } }
         };
     }
     function choose(event, alternatives) {
-        if (event.parts.length === 1) return search(event, event.parts[0], alternatives);
+        if (event.parts.length === 1) return openRecordings(event, event.parts[0], alternatives);
         L.Select.show({ title: event.title, items: event.parts.map(function (part) {
-            return { title: part.title, subtitle: part.date ? stamp(part.date) : 'Начало турнира: ' + stamp(event.date) + ' · время части не указано',
-                onSelect: function () { search(event, part, alternatives); } };
+            var found = part.recordings && part.recordings.length;
+            return { title: part.title + (found ? ' · запись найдена' : ' · пока без записи'), noenter: !found,
+                subtitle: part.date ? stamp(part.date) : 'Начало турнира: ' + stamp(event.date) + ' · время части не указано',
+                onSelect: function () { openRecordings(event, part, alternatives); } };
         }), onBack: restore });
     }
     function play(event, part, record) {
@@ -222,34 +273,17 @@
         L.Torrent.back(restore);
         L.Torrent.start(Object.assign({}, record, { Title: title, MagnetUri: uri, Link: uri, poster: poster(event.sport) }), { title: title, img: poster(event.sport) });
     }
-    function search(event, part, alternatives) {
+    function openRecordings(event, part, alternatives) {
         if (part.date && Date.parse(part.date) > Date.now()) return message('Сессия ещё не состоялась');
-        var cancelled = false, results = [], queries = SPORTS[event.sport].queries.slice();
-        L.Modal.open({ title: 'Поиск записи', html: $('<div class="krajcik-sports-search"></div>').text(event.title + ' · ' + part.title),
-            onBack: function () { cancelled = true; L.Parser.clear(); L.Modal.close(); restore(); } });
-        function next() {
-            if (cancelled) return;
-            var query = queries.shift();
-            if (!query) {
-                L.Modal.close(); restore();
-                var found = recordings(event, part, results);
-                if (!found.length) return message('Запись пока не найдена');
-                if (alternatives) return L.Select.show({ title: 'Варианты записи', items: found.map(function (record, i) {
+        var found = part.recordings || [];
+        if (!found.length) return message('Запись пока не найдена');
+        restore();
+        if (alternatives) return L.Select.show({ title: 'Варианты записи', items: found.map(function (record, i) {
                     var quality = (record.Title.match(/\b(?:2160|1080|720|480)p?\b/i) || ['Качество не указано'])[0];
                     return { title: (i + 1) + '. ' + quality + ' · ' + (russian(record.Title) ? 'RU по описанию' : 'Язык не подтверждён'),
                         subtitle: L.Utils.bytesToSize(Number(record.Size) || 0) + ' · сидов: ' + (Number(record.Seeders) || 0), onSelect: function () { play(event, part, record); } };
                 }), onBack: restore });
-                play(event, part, found[0]); return;
-            }
-            L.Parser.get({ search: query, from_search: true, other: true }, function (data) {
-                if (cancelled) return;
-                results = results.concat(data.Results || []); next();
-            }, function () {
-                if (cancelled) return;
-                cancelled = true; L.Modal.close(); message('Парсер недоступен. Проверьте настройки Lampa.');
-            });
-        }
-        next();
+        play(event, part, found[0]);
     }
     function history(sport) {
         var months = [];
@@ -260,9 +294,9 @@
         L.Select.show({ title: SPORTS[sport].title + ' · архив', items: months, onBack: restore, onSelect: function (item) {
             var cancelled = false;
             L.Modal.open({ title: 'Расписание', html: $('<div></div>').text(item.title), onBack: function () { cancelled = true; L.Modal.close(); restore(); } });
-            load(sport, item.month).then(function (events) {
+            catalog(sport, item.month).then(function (events) {
                 if (cancelled) return; L.Modal.close();
-                if (!events.length) return message('За этот месяц событий не найдено');
+                if (!events.length) return message('За этот месяц записей пока не найдено');
                 L.Select.show({ title: SPORTS[sport].title + ' · ' + item.title, items: events.map(function (event) {
                     return { title: escape(event.title), subtitle: escape(stamp(event.date)), onSelect: function () { choose(event); } };
                 }), onBack: restore });
@@ -282,16 +316,17 @@
                     if (!L.Storage.get('krajcik_sports_' + sport, true)) return;
                     return function (done) {
                         var current = new Date(), previous = new Date(current.getFullYear(), current.getMonth() - 1, 1);
-                        Promise.all([load(sport, monthKey(current)), load(sport, monthKey(previous))]).then(function (groups) {
+                        Promise.all([catalog(sport, monthKey(current)), catalog(sport, monthKey(previous))]).then(function (groups) {
                             var events = unique(groups.flat().map(function (e) { return e.id; })).map(function (id) { return groups.flat().find(function (e) { return e.id === id; }); });
                             events.sort(function (a, b) { return Date.parse(b.date) - Date.parse(a.date); });
                             var cards = events.slice(0, 12).map(card);
                             var more = { id: sport, sport: sport, title: 'Ранее · ' + SPORTS[sport].title, date: current.toISOString(), end: current.toISOString(), parts: [] };
                             var extra = card(more); extra.overview = 'Выбрать месяц'; extra.params.emit.onlyEnter = extra.params.emit.onlyLong = function () { history(sport); };
+                            if (!cards.length) { extra.title = 'Пока нет доступных записей'; extra.overview = 'Открыть архив · ' + SPORTS[sport].title; }
                             cards.push(extra); done({ title: SPORTS[sport].title, results: cards });
                         }).catch(function () {
-                            var retry = card({ title: 'Расписание недоступно', sport: sport, date: current.toISOString(), parts: [] });
-                            retry.overview = 'Нажмите для повторной загрузки'; retry.params.emit.onlyEnter = function () { history(sport); };
+                            var retry = card({ title: 'Каталог недоступен', sport: sport, date: current.toISOString(), parts: [] });
+                            retry.overview = 'Нажмите для повторной загрузки'; retry.params.emit.onlyEnter = retry.params.emit.onlyLong = function () { history(sport); };
                             done({ title: SPORTS[sport].title, results: [retry] });
                         });
                     };
