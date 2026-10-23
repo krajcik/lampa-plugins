@@ -109,3 +109,28 @@ test('loading twice and repeated appready register only five namespaced rows/set
     assert.equal(new Set(rows.map(r => r.name)).size, 5);
     assert.ok(settings.every(s => s.param.name.startsWith('krajcik_sports_')));
 });
+
+test('launch restores the home controller before leaving for an external player', async () => {
+    const rows = [], launched = []; let controller = 'content';
+    const FixedDate = class extends Date {
+        constructor(...args) { super(...(args.length ? args : ['2026-10-24T12:00:00Z'])); }
+        static now() { return Date.parse('2026-10-24T12:00:00Z'); }
+    };
+    const Lampa = {
+        ContentRows: { add: row => rows.push(row) },
+        SettingsApi: { addComponent() {}, addParam() {} }, Storage: { get: () => true },
+        Maker: { module: () => ({ only: () => 1 }) },
+        Reguest: function () { this.timeout = () => {}; this.clear = () => {}; this.native = (url, done) => done(fixture.nhl); },
+        Controller: { toggle: name => { controller = name; } },
+        Modal: { open() { controller = 'modal'; }, close() {} },
+        Parser: { get(params, done) { done({ Results: [release('NHL. Детройт — Ванкувер [22.10.2026] RU')] }); } },
+        Torrent: { back() {}, start(record) { launched.push({ record, controller }); } }
+    };
+    const context = vm.createContext({ window: { Lampa, appready: true }, Date: FixedDate, Set, Promise, console, $: () => ({ text() { return this; } }) });
+    vm.runInContext(fs.readFileSync(require.resolve('../sports.js'), 'utf8'), context);
+    const line = await new Promise(resolve => rows[0].call()(resolve));
+    line.results[0].params.emit.onlyEnter();
+    assert.equal(launched.length, 1);
+    assert.equal(launched[0].controller, 'content');
+    assert.doesNotMatch(launched[0].record.MagnetUri, /SECRET_RESULT/);
+});

@@ -1,7 +1,7 @@
 (function (root) {
     'use strict';
 
-    var VERSION = '0.1.0';
+    var VERSION = '0.1.1';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', queries: ['NHL', 'НХЛ'], color: '#395d88' },
         nba: { title: 'NBA', path: 'basketball/nba', queries: ['NBA', 'НБА'], color: '#96532f' },
@@ -232,7 +232,7 @@
             if (cancelled) return;
             var query = queries.shift();
             if (!query) {
-                L.Modal.close();
+                L.Modal.close(); restore();
                 var found = recordings(event, part, results);
                 if (!found.length) return message('Запись пока не найдена');
                 if (alternatives) return L.Select.show({ title: 'Варианты записи', items: found.map(function (record, i) {
