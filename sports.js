@@ -274,6 +274,7 @@
         if (root.krajcik_sports.started) return;
         if (!L.ContentRows || !L.Maker || !L.Parser) return L.Noty.show('Спорт: требуется Lampa 3.x');
         root.krajcik_sports.started = true;
+        if (L.Manifest) L.Manifest.plugins = { type: 'other', version: VERSION, name: 'Спорт без спойлеров', description: 'NHL, NBA, UFC, F1 и NASCAR Cup: расписание и записи', component: 'krajcik_sports' };
         L.SettingsApi.addComponent({ component: 'krajcik_sports', name: 'Спорт без спойлеров', icon: '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="none" stroke="currentColor" stroke-width="3"/></svg>' });
         Object.keys(SPORTS).forEach(function (sport, index) {
             L.SettingsApi.addParam({ component: 'krajcik_sports', param: { name: 'krajcik_sports_' + sport, type: 'trigger', default: true }, field: { name: SPORTS[sport].title, description: 'Показывать ряд на главной. Изменения применятся при следующем открытии главной.' } });
