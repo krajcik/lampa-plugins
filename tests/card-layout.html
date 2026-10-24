@@ -23,7 +23,8 @@ body{margin:0;background:#222;color:white;font:16px/1.2 Arial}
 <pre id="result">Checking…</pre>
 <script>
 window.appready=true;
-window.Lampa={Storage:{get:()=>({}),set(){}},Manifest:{},Listener:{follow(){}},Reguest:function(){throw Error('Layout must not request metadata')}};
+window.layoutListeners={};
+window.Lampa={Storage:{get:()=>({}),set(){}},Manifest:{},Listener:{follow(name,callback){layoutListeners[name]=callback}},Reguest:function(){throw Error('Layout must not request metadata')}};
 </script>
 <script src="../interface.js"></script>
 <script>
@@ -34,6 +35,13 @@ function pinned(){assert(Math.abs(rect('.full-start-new__poster').top-rect('.ful
 async function run(){
  await frame();pinned();
  const right=document.querySelector('.full-start-new__right');
+ const card={id:157336,title:'Интерстеллар',original_title:'Interstellar',original_language:'en',imdb_rating:8.7,kp_rating:8.7};
+ const headHeight=rect('.full-start-new__head').height;
+ const update=()=>layoutListeners.full({type:'complite',body:[document.querySelector('.full-start-new')],data:{movie:card}});
+ update();update();await frame();
+ assert(document.querySelectorAll('.krajcik-interface-original').length===1,'English title duplicated');
+ assert(document.querySelector('.krajcik-interface-original').textContent==='Interstellar','English title missing');
+ assert(Math.abs(rect('.full-start-new__head').height-headHeight)<1,'English title adds height to metadata row');
  const names=document.createElement('div');names.className='original_title';
  names.style.cssText='margin-bottom:7px;text-align:right';
  for(const title of ['Interstellar','Інтерстеллар','Інтэрстэлар','Интерстеллар']){
@@ -41,7 +49,7 @@ async function run(){
   const flag=document.createElement('img');flag.style.cssText='width:1.15em;height:auto;vertical-align:inherit';row.append(flag);names.append(row);
  }
  document.querySelector('.full-start-new__title').after(names);await frame();pinned();
- assert(getComputedStyle(names).textAlign==='left','Alternative titles drift to the far right');
+ assert(names.offsetHeight===0,'Multilingual title block takes up card space');
  const taglineTop=rect('.full-start-new__tagline').top;
  await Promise.all(Array.from(names.querySelectorAll('img')).map(img=>new Promise((resolve,reject)=>{
   img.onload=resolve;img.onerror=reject;
@@ -51,9 +59,11 @@ async function run(){
  const details=document.createElement('div');details.className='myshows-details';details.textContent='MyShows: рейтинг, оценка, комментарии и рецензии';right.append(details);await frame();pinned();
  const longName=document.createElement('div');longName.textContent='VeryLongOriginalTitle'.repeat(12);names.append(longName);await frame();pinned();
  assert(right.getBoundingClientRect().right<=innerWidth-20,'Long original title pushes the column off screen');
- assert(names.scrollWidth<=names.clientWidth+1,'Long original title overflows its block');
+ card.original_title=longName.textContent;update();await frame();pinned();
+ assert(Math.abs(rect('.full-start-new__head').height-headHeight)<1,'Long English title adds a row');
+ assert(getComputedStyle(document.querySelector('.full-start-new__head')).textOverflow==='ellipsis','Long English title must truncate');
  document.querySelector('.full-start-new__title').textContent='Длинное название сериала с несколькими строками и дополнительным описанием';await frame();pinned();
- return {passed:true,lateTitles:true,lateFlags:true,lateMyShows:true,longNames:true,posterOffset:rect('.full-start-new__poster').top-rect('.full-start-new__body').top};
+ return {passed:true,compactEnglish:true,noExtraRow:true,lateTitles:true,lateFlags:true,lateMyShows:true,longNames:true,posterOffset:rect('.full-start-new__poster').top-rect('.full-start-new__body').top};
 }
 run().then(result=>{window.cardLayoutTest=result;document.querySelector('#result').textContent=JSON.stringify(result,null,2)}).catch(error=>{window.cardLayoutTest={passed:false,error:error.message};document.querySelector('#result').textContent=JSON.stringify(cardLayoutTest,null,2)});
 </script>

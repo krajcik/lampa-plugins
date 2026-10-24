@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.1.2';
+    var VERSION = '0.1.3';
     var API = 'https://imdb.home.lurno.ru/rating/';
     var CACHE = 'krajcik_interface_ratings_cache';
     var DAY = 86400000;
@@ -19,7 +19,19 @@
         }
         return id ? { key: 'imdb:' + id, imdb: id } : null;
     }
-    if (typeof module !== 'undefined' && module.exports) { module.exports = { score: score, imdb: imdb, identity: identity }; return; }
+    function englishTitle(data) {
+        if (!data) return '';
+        var original = data.original_title || data.original_name;
+        var alternatives = data.alternative_titles || {};
+        var titles = alternatives.titles || alternatives.results || [];
+        var us = Array.isArray(titles) && titles.find(function (item) { return item && item.iso_3166_1 === 'US' && typeof item.title === 'string'; });
+        var title = data.original_language === 'en' ? original : us && us.title;
+        if (!title && !data.original_language && Array.isArray(data.origin_country) && data.origin_country.includes('US')) title = original;
+        if (typeof title !== 'string') return '';
+        title = title.replace(/\s+/g, ' ').trim();
+        return title.toLowerCase() === String(data.title || data.name || '').trim().toLowerCase() ? '' : title;
+    }
+    if (typeof module !== 'undefined' && module.exports) { module.exports = { score: score, imdb: imdb, identity: identity, englishTitle: englishTitle }; return; }
     if (!root.Lampa || root.krajcik_interface) return;
     var L = root.Lampa;
     root.krajcik_interface = { version: VERSION };
@@ -140,6 +152,21 @@
             if (!node || !node.isConnected || (!full && node.classList.contains('card--collection'))) return;
             var id = identity(data);
             if (!id) return;
+            if (full) {
+                var head = node.querySelector('.full-start-new__head');
+                if (head) {
+                    var oldTitle = head.querySelector('.krajcik-interface-original');
+                    if (oldTitle) oldTitle.remove();
+                    var title = englishTitle(data);
+                    if (title) {
+                        var label = document.createElement('span');
+                        label.className = 'krajcik-interface-original';
+                        label.textContent = title;
+                        label.title = title;
+                        head.appendChild(label);
+                    }
+                }
+            }
             var target = { node: node, key: id.key, full: full, rating: score(data.imdb_rating), kp: score(data.kp_rating) };
             targets.set(node, target);
             if (!full) {
@@ -185,8 +212,9 @@
         style.textContent = '.krajcik-interface .full-start__rate.rate--tmdb{display:none!important}' +
             '.krajcik-interface .full-start-new__body{align-items:flex-start}' +
             '.krajcik-interface .full-start-new__right{min-width:0}' +
-            '.krajcik-interface .full-start-new .original_title{text-align:left!important;overflow-wrap:anywhere}' +
-            '.krajcik-interface .full-start-new .original_title img{height:.75em!important;object-fit:contain;vertical-align:middle!important}' +
+            '.krajcik-interface .full-start-new .original_title{display:none!important}' +
+            '.krajcik-interface .full-start-new__head{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+            '.krajcik-interface-original{margin-left:.7em;opacity:.7}' +
             '.krajcik-interface-poster:not(.krajcik-interface-community) .card__view>.card__vote:not(.krajcik-interface-ratings){display:none!important}' +
             '.card__vote.krajcik-interface-ratings{pointer-events:none;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:.2em;background:none;padding:0;left:auto;right:.3em;bottom:.3em;font-size:1.3em;line-height:1.2}' +
             '.krajcik-interface-ratings>span{background:rgba(0,0,0,.5);border-radius:1em;padding:.2em .4em}' +

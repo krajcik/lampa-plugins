@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { score, imdb, identity } = require('../interface.js');
+const { score, imdb, identity, englishTitle } = require('../interface.js');
 
 test('IMDb scores reject missing, malformed and out-of-range values', () => {
     for (const value of [null, undefined, '', true, 0, -1, 11, NaN, Infinity, '8.7 / 10', 'NaN']) assert.equal(score(value), null);
@@ -24,4 +24,13 @@ test('people, collections, episodes and unrelated provider IDs are never resolve
     assert.equal(identity({ Title: 'Torrent', id: 'topic123' }), null);
     assert.equal(imdb('tt12345/../../config'), '');
     assert.equal(imdb(1234567), '');
+});
+
+test('compact English title uses the original English or US name, never duplicates the heading', () => {
+    assert.equal(englishTitle({ title: 'Интерстеллар', original_title: 'Interstellar', original_language: 'en' }), 'Interstellar');
+    assert.equal(englishTitle({ name: 'Друзья', original_name: 'Friends', original_language: 'en' }), 'Friends');
+    assert.equal(englishTitle({ title: 'Паразиты', original_title: '기생충', original_language: 'ko', alternative_titles: { titles: [{ iso_3166_1: 'US', title: 'Parasite' }] } }), 'Parasite');
+    assert.equal(englishTitle({ title: 'Interstellar', original_title: 'Interstellar', original_language: 'en' }), '');
+    assert.equal(englishTitle({ title: 'Паразиты', original_title: '기생충', original_language: 'ko' }), '');
+    assert.equal(englishTitle({ title: 'Название', original_title: {}, original_language: 'en' }), '');
 });
