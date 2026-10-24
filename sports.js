@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.5.0';
+    var VERSION = '0.6.0';
     var PARSER_URL = 'https://jackett.home.lurno.ru';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', color: '#29496a' },
@@ -103,9 +103,37 @@
         }
         return rank(b) - rank(a) || (Number(b.Seeders) || 0) - (Number(a.Seeders) || 0);
     }
+    function eventDate(event) {
+        return new Date(event.date).toLocaleDateString('ru-RU', { timeZone: ['nhl', 'nba', 'nascar', 'ufc'].includes(event.sport) ? 'America/New_York' : 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    function nextDay(date) {
+        return new Date(Date.UTC(Number(date.slice(6)), Number(date.slice(3, 5)) - 1, Number(date.slice(0, 2)) + 1)).toLocaleDateString('ru-RU', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    function eventParts(event) {
+        if (!['nhl', 'nba', 'ucl', 'epl'].includes(event.sport)) return event.parts;
+        return event.parts.concat([
+            { id: 'review', title: 'Обзор матча', subtitle: 'Может быть в подборке: матч выбирается внутри раздачи' },
+            { id: 'day_review', title: 'Обзор игрового дня', subtitle: eventDate(event) + ' · все матчи дня; выпуск может выйти позже' }
+        ]);
+    }
+    function reviewMatches(title, event, mode, source) {
+        var expected = eventDate(event), explicit = /за\s+(\d{2}\.\d{2}\.\d{4})/i.exec(title);
+        var dates = [expected];
+        if (!explicit && mode === 'day_review' && source === 'rgfootball') dates.push(nextDay(expected));
+        var range = /(\d{2})[-–](\d{2})(\.\d{2}\.\d{4})/.exec(title);
+        var fullRange = /(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})/.exec(title);
+        function iso(date) { return date.slice(6) + date.slice(3, 5) + date.slice(0, 2); }
+        if ((range || fullRange) && (!explicit || fullRange && fullRange[1] === explicit[1])) {
+            var first = fullRange ? fullRange[1] : range[1] + range[3], last = fullRange ? fullRange[2] : range[2] + range[3];
+            return dates.some(function (date) { return iso(date) >= iso(first) && iso(date) <= iso(last); });
+        }
+        var full = explicit || /(\d{2}\.\d{2}\.\d{4})/.exec(title), split = /\[(\d{2}\.\d{2})\]\s*\((\d{4})\)/.exec(title);
+        var found = full ? full[1] : split ? split[1] + '.' + split[2] : '';
+        // RuTracker turns punctuation into wildcards; its date query can match a different year.
+        return !found || dates.includes(found);
+    }
     function searchParams(event, part) {
-        var year = new Date(event.date).getUTCFullYear(), american = ['nhl', 'nba', 'nascar', 'ufc'].includes(event.sport);
-        var date = new Date(event.date).toLocaleDateString('ru-RU', { timeZone: american ? 'America/New_York' : 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+        var year = new Date(event.date).getUTCFullYear(), date = eventDate(event);
         var start = year - (new Date(event.date).getUTCMonth() < (['nhl', 'nba'].includes(event.sport) ? 8 : 6) ? 1 : 0);
         var season = event.season || start + '-' + (start + 1);
         var label = event.teams ? season : year;
@@ -122,7 +150,13 @@
         if (event.sport === 'nascar') query = 'NASCAR Cup Series ' + year + ' ' + date;
         // Parts can live inside Full Event/weekend packs whose titles do not name the selected part.
         if (event.sport === 'ufc') query = event.title;
-        return { component: 'torrents', title: 'Поиск записи', search: query, from_search: true, krajcik_sports: true, page: 1,
+        var review = part.id === 'review' || part.id === 'day_review';
+        if (review) {
+            var teams = event.teams ? event.teams.map(function (t) { return CLUBS[t.name] || t.name; }).join(' ') + ' ' : '';
+            query = SPORTS[event.sport].title + ' ' + (part.id === 'day_review' ? 'Обзор ' : ['nhl', 'nba'].includes(event.sport) ? 'Highlights ' : teams + 'Обзор ') + date;
+        }
+        return { component: 'torrents', title: review ? part.title : 'Поиск записи', search: query, from_search: true, krajcik_sports: true, page: 1,
+            krajcik_sports_review: review ? part.id : '',
             krajcik_sports_query: query, krajcik_sports_event: event,
             movie: { id: event.id + '_' + part.id, title: escape(event.title), original_title: escape(event.title), release_date: event.date, genres: [], names: [broad, SPORTS[event.sport].title] } };
     }
@@ -138,7 +172,16 @@
         // A manual edit is authoritative; never replace it with the original event query.
         if (!event || params.krajcik_sports_query !== query) return queries;
         var year = new Date(event.date).getUTCFullYear();
-        var date = new Date(event.date).toLocaleDateString('ru-RU', { timeZone: ['nhl', 'nba', 'nascar', 'ufc'].includes(event.sport) ? 'America/New_York' : 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+        var date = eventDate(event);
+        if (params.krajcik_sports_review) {
+            var day = params.krajcik_sports_review === 'day_review', american = ['nhl', 'nba'].includes(event.sport);
+            var league = { nhl: 'NHL', nba: 'NBA', ucl: 'Champions League', epl: 'Premier League' }[event.sport];
+            var teams = !day && !american && event.teams ? event.teams.map(function (t) { return CLUBS[t.name] || t.name; }).join(' ') + ' ' : '';
+            queries[1].query = queries[3].query = SPORTS[event.sport].title + ' ' + teams + (day || !american ? 'Обзор ' : 'Highlights ') + year + ' ' + date.slice(0, 5);
+            queries[2].query = (!day && !american && event.teams ? event.teams.map(function (t) { return t.name; }).join(' ') + ' ' : '') + league + ' ' + (day && event.sport === 'epl' ? 'Match of the Day ' : 'Highlights ') + date;
+            if (day && !american) queries.push({ id: 'rgfootball', category: 5060, query: queries[2].query.replace(date, nextDay(date)) });
+            return queries;
+        }
         if (event.sport === 'f1') {
             queries[2].query = queries[1].query;
         } else if (event.sport !== 'ufc') {
@@ -161,7 +204,7 @@
         if (!sport || !isFinite(time) || !time || !isFinite(new Date(time).getTime())) return null;
         return { id: 'cub_' + data.id, sport: sport, title: title, date: new Date(time).toISOString(), parts: [{ id: 'full', title: 'Запись трансляции' }] };
     }
-    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image, parserUrl: parserUrl, preference: preference, trackerQueries: trackerQueries };
+    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image, parserUrl: parserUrl, preference: preference, trackerQueries: trackerQueries, eventParts: eventParts, reviewMatches: reviewMatches };
     if (typeof module !== 'undefined' && module.exports) module.exports = core;
     if (!root || !root.Lampa || root.krajcik_sports) return;
     root.krajcik_sports = { version: VERSION };
@@ -171,9 +214,10 @@
     function restore() { L.Controller.toggle('content'); }
     function choose(event) {
         function open(part) { L.Activity.push(searchParams(event, part)); }
-        if (event.parts.length === 1) return open(event.parts[0]);
-        L.Select.show({ title: event.title, items: event.parts.map(function (part) {
-            return { title: part.title, subtitle: part.date ? stamp(part.date) : 'Время части не указано', noenter: part.date && Date.parse(part.date) > Date.now(), onSelect: function () { open(part); } };
+        var parts = eventParts(event);
+        if (parts.length === 1) return open(parts[0]);
+        L.Select.show({ title: event.title, items: parts.map(function (part) {
+            return { title: part.title, subtitle: part.subtitle || (part.date ? stamp(part.date) : 'Время части не указано'), noenter: part.date && Date.parse(part.date) > Date.now(), onSelect: function () { open(part); } };
         }), onBack: restore });
     }
     function load(sport, month, state) {
@@ -309,7 +353,8 @@
             if (!key) return error('Введите API-ключ в «Настройки → Спорт · записи».');
             var previous = searches.get(params);
             if (previous) previous.cancel();
-            var queries = trackerQueries(params), nets = [], active = true, pending = queries.length, successful = 0, failures = [], entries = [];
+            var queries = trackerQueries(params), nets = [], active = true, pending = queries.length, successful = 0, failures = [], entries = [], seen = new Set();
+            var review = params.krajcik_sports_review && params.krajcik_sports_event && validDate(params.krajcik_sports_event.date) && params.search === params.krajcik_sports_query;
             var job = { cancel: function () { active = false; searches.delete(params); nets.forEach(function (net) { net.clear(); }); } };
             searches.set(params, job);
             function finish(fn, value) { if (!active) return; job.cancel(); fn(value); }
@@ -318,10 +363,19 @@
                 if (!failure && (!data || !Array.isArray(data.Results) || data.Results.some(function (entry) { return !entry || typeof entry.Title !== 'string'; }))) failure = 'Некорректный ответ';
                 if (!failure && Array.isArray(data.Indexers) && data.Indexers.some(function (indexer) { return !indexer || indexer.Status !== 2; })) failure = 'Ошибка трекера';
                 if (failure) failures.push({ id: source.id, status: failure.status });
-                else { successful++; entries = entries.concat(data.Results); }
+                else {
+                    successful++;
+                    data.Results.forEach(function (entry) {
+                        if (review && !reviewMatches(entry.Title, params.krajcik_sports_event, params.krajcik_sports_review, source.id)) return;
+                        var guid = review && entry.Guid && source.id + ':' + entry.Guid;
+                        if (guid && seen.has(guid)) return;
+                        if (guid) seen.add(guid);
+                        entries.push(entry);
+                    });
+                }
                 if (--pending) return;
                 if (!successful) return finish(error, failures.every(function (f) { return f.status === 401; }) ? 'Проверьте API-ключ в «Спорт · записи».' : 'Спортивные трекеры недоступны. Повторите поиск: проверка Cloudflare может занять около минуты.');
-                if (failures.length) L.Noty.show('Не ответили: ' + failures.map(function (f) { return f.id; }).join(', ') + '. Показана доступная выдача.');
+                if (failures.length) L.Noty.show('Не ответили: ' + Array.from(new Set(failures.map(function (f) { return f.id; }))).join(', ') + '. Показана доступная выдача.');
                 var viewed = L.Storage.cache('torrents_view', 5000, []);
                 entries.forEach(function (entry) {
                     entry.PublisTime = L.Utils.strToTime(entry.PublishDate);

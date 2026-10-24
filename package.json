@@ -1,6 +1,6 @@
 {
   "name": "lampa-plugins",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": { "test": "node --check sports.js && node --check interface.js && node --test tests/*.test.cjs && python3 -B tests/imdb_service_test.py" }
 }
