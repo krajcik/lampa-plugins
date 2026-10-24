@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Проверка расположения рейтингов</title>
+<style>
+body{background:#222;color:white;font:12px/1.2 Arial;padding:40px}
+.card{width:135px}.card__view{position:relative;height:205px;background:#64737d}
+.card__vote{position:absolute;right:.3em;bottom:.3em;background:rgba(0,0,0,.5);color:white;font-size:1.3em;font-weight:700;padding:.2em .5em;border-radius:1em;z-index:1}
+.myshows-progress,.myshows-next-episode{position:absolute;left:0;bottom:0;padding:.2em .4em;font-size:1.2em;border-radius:.5em;font-weight:bold;z-index:2;background:#4caf50}
+.myshows-next-episode{bottom:1.5em;background:#209fee}
+</style>
+<div class="card layer--visible"><div class="card__view">
+    <div class="card__vote">8.1</div>
+    <div class="myshows-progress">307/332</div>
+    <div class="myshows-next-episode">S25/E01</div>
+</div></div>
+<pre id="result">Проверка…</pre>
+<script>
+window.appready = true;
+window.Lampa = {
+    Storage: { get: () => ({}), set() {} }, Manifest: {},
+    Listener: { follow() {} },
+    Reguest: function () { throw Error('Layout must not issue network requests'); }
+};
+document.querySelector('.card').card_data = { id: 1399, name: 'Series', first_air_date: '2011-04-17', imdb_rating: 9.2, kp_rating: 9 };
+</script>
+<script src="../interface.js"></script>
+<script>
+// MyShows can load its styles and badge after the interface plugin.
+var nativeStyle = document.createElement('style');
+nativeStyle.textContent = '.card__view .myshows-poster-rating{position:absolute;z-index:2;top:2.8em;left:.3em;padding:.2em .5em;background:rgba(0,0,0,.82);color:white;border-radius:1em;font-size:1.3em;font-weight:700}';
+document.head.append(nativeStyle);
+var ms = document.createElement('div'); ms.className = 'myshows-poster-rating'; ms.textContent = 'MS 8.9';
+document.querySelector('.card__view').append(ms);
+function assert(condition, message) { if (!condition) throw Error(message); }
+function bounds(selector) { return document.querySelector(selector).getBoundingClientRect(); }
+function overlap(a, b) { return Math.min(a.right,b.right)>Math.max(a.left,b.left) && Math.min(a.bottom,b.bottom)>Math.max(a.top,b.top); }
+requestAnimationFrame(function () {
+    try {
+        var imdb = bounds('.krajcik-interface-imdb'), kp = bounds('.krajcik-interface-kp'), myshows = bounds('.myshows-poster-rating'), view = bounds('.card__view');
+        assert(imdb.bottom <= kp.top && kp.bottom <= myshows.top, 'IMDb, КП, MS must form a vertical column');
+        assert(Math.abs(imdb.right-kp.right)<1 && Math.abs(kp.right-myshows.right)<1, 'Ratings must share the right edge');
+        assert(view.bottom-myshows.bottom>0 && view.bottom-myshows.bottom<10, 'MS must sit at the bottom right');
+        for (var marker of ['.myshows-progress','.myshows-next-episode']) {
+            for (var rating of [imdb,kp,myshows]) assert(!overlap(bounds(marker),rating), 'Series counters must remain readable');
+        }
+        for (var selector of ['.krajcik-interface-imdb','.krajcik-interface-kp','.myshows-poster-rating']) assert(getComputedStyle(document.querySelector(selector)).backgroundColor==='rgba(0, 0, 0, 0.5)', 'Background must match native TMDB opacity');
+        ms.remove();
+        assert(view.bottom-bounds('.krajcik-interface-kp').bottom<10, 'Without MS, IMDb and КП must return to the bottom');
+        document.querySelector('.card__view').append(ms);
+        window.stackTest = { passed: true, order: ['IMDb','КП','MS'], lateMyShows: true, countersUnchanged: true, withoutMyShows: true };
+        document.querySelector('#result').textContent = JSON.stringify(stackTest,null,2);
+    } catch (error) {
+        window.stackTest = { passed: false, error: error.message };
+        document.querySelector('#result').textContent = JSON.stringify(stackTest,null,2);
+    }
+});
+</script>

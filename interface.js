@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.1.0';
+    var VERSION = '0.1.1';
     var API = 'https://imdb.home.lurno.ru/rating/';
     var CACHE = 'krajcik_interface_ratings_cache';
     var DAY = 86400000;
@@ -184,9 +184,13 @@
         var style = document.createElement('style');
         style.textContent = '.krajcik-interface .full-start__rate.rate--tmdb{display:none!important}' +
             '.krajcik-interface-poster:not(.krajcik-interface-community) .card__view>.card__vote:not(.krajcik-interface-ratings){display:none!important}' +
-            '.card__vote.krajcik-interface-ratings{pointer-events:none;white-space:nowrap;display:flex;gap:.3em;background:none;padding:0;left:.3em;right:.3em;justify-content:flex-end;font-size:1.1em}' +
-            '.krajcik-interface-ratings>span{background:rgba(0,0,0,.8);border-radius:1em;padding:.2em .4em}' +
-            '.krajcik-interface-community .krajcik-interface-ratings{bottom:2.4em}';
+            '.card__vote.krajcik-interface-ratings{pointer-events:none;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:.2em;background:none;padding:0;left:auto;right:.3em;bottom:.3em;font-size:1.3em;line-height:1.2}' +
+            '.krajcik-interface-ratings>span{background:rgba(0,0,0,.5);border-radius:1em;padding:.2em .4em}' +
+            '.krajcik-interface-poster .card__view .myshows-poster-rating{top:auto!important;left:auto!important;right:.3em!important;bottom:.3em!important;background:rgba(0,0,0,.5)!important;font-size:1.3em!important;line-height:1.2!important;padding:.2em .4em!important;border-radius:1em}' +
+            '.krajcik-interface-poster .card__view:has(.myshows-poster-rating) .krajcik-interface-ratings{bottom:2.1em}' +
+            '.krajcik-interface-community .krajcik-interface-ratings{bottom:2.1em}' +
+            '.krajcik-interface-community .card__view .myshows-poster-rating{bottom:2.1em!important}' +
+            '.krajcik-interface-community .card__view:has(.myshows-poster-rating) .krajcik-interface-ratings{bottom:3.9em}';
         document.head.appendChild(style);
         document.body.classList.add('krajcik-interface');
         document.addEventListener('visible', function (event) { watch(event.target); }, true);
