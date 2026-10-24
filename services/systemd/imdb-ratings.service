@@ -1,0 +1,20 @@
+[Unit]
+Description=Private IMDb ratings API
+After=network.target
+
+[Service]
+User=imdb-ratings
+StateDirectory=imdb-ratings
+Environment=IMDB_RATINGS_DB=/var/lib/imdb-ratings/ratings.sqlite
+Environment=IMDB_RATINGS_HOST=0.0.0.0
+ExecStart=/usr/bin/python3 /opt/imdb-ratings/imdb-ratings.py
+Restart=on-failure
+MemoryMax=96M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
