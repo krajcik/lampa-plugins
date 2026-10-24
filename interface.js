@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.1.1';
+    var VERSION = '0.1.2';
     var API = 'https://imdb.home.lurno.ru/rating/';
     var CACHE = 'krajcik_interface_ratings_cache';
     var DAY = 86400000;
@@ -183,6 +183,10 @@
         }
         var style = document.createElement('style');
         style.textContent = '.krajcik-interface .full-start__rate.rate--tmdb{display:none!important}' +
+            '.krajcik-interface .full-start-new__body{align-items:flex-start}' +
+            '.krajcik-interface .full-start-new__right{min-width:0}' +
+            '.krajcik-interface .full-start-new .original_title{text-align:left!important;overflow-wrap:anywhere}' +
+            '.krajcik-interface .full-start-new .original_title img{height:.75em!important;object-fit:contain;vertical-align:middle!important}' +
             '.krajcik-interface-poster:not(.krajcik-interface-community) .card__view>.card__vote:not(.krajcik-interface-ratings){display:none!important}' +
             '.card__vote.krajcik-interface-ratings{pointer-events:none;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:.2em;background:none;padding:0;left:auto;right:.3em;bottom:.3em;font-size:1.3em;line-height:1.2}' +
             '.krajcik-interface-ratings>span{background:rgba(0,0,0,.5);border-radius:1em;padding:.2em .4em}' +

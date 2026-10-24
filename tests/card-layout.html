@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Full card layout regression</title>
+<style>
+body{margin:0;background:#222;color:white;font:16px/1.2 Arial}
+/* Native Lampa 3.3.8 full-start layout, before plugins append their content. */
+.full-start-new{padding:24px}.full-start-new__body{display:flex;align-items:flex-end}
+.full-start-new__left{flex-shrink:0;width:17em;margin-right:3em}
+.full-start-new__poster{height:25.5em;background:#64737d}
+.full-start-new__right{flex-grow:1}.full-start-new__title{font-size:2em}
+.full-start-new__tagline{margin:1em 0}.myshows-details{padding:1em;border:1px solid #777;min-height:13em}
+</style>
+<div class="full-start-new"><div class="full-start-new__body">
+ <div class="full-start-new__left"><div class="full-start-new__poster"></div></div>
+ <div class="full-start-new__right">
+  <div class="full-start-new__head">2014, Великобритания | США</div>
+  <div class="full-start-new__title">Интерстеллар</div>
+  <div class="full-start-new__tagline">Следующий шаг человечества станет величайшим</div>
+  <div class="full-start-new__buttons">Смотреть · Избранное · MyShows</div>
+ </div>
+</div></div>
+<pre id="result">Checking…</pre>
+<script>
+window.appready=true;
+window.Lampa={Storage:{get:()=>({}),set(){}},Manifest:{},Listener:{follow(){}},Reguest:function(){throw Error('Layout must not request metadata')}};
+</script>
+<script src="../interface.js"></script>
+<script>
+const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+function assert(value,message){if(!value)throw Error(message)}
+function rect(selector){return document.querySelector(selector).getBoundingClientRect()}
+function pinned(){assert(Math.abs(rect('.full-start-new__poster').top-rect('.full-start-new__body').top)<1,'Poster moved down when details arrived')}
+async function run(){
+ await frame();pinned();
+ const right=document.querySelector('.full-start-new__right');
+ const names=document.createElement('div');names.className='original_title';
+ names.style.cssText='margin-bottom:7px;text-align:right';
+ for(const title of ['Interstellar','Інтерстеллар','Інтэрстэлар','Интерстеллар']){
+  const row=document.createElement('div');row.style.fontSize='1.25em';row.textContent=title+' ';
+  const flag=document.createElement('img');flag.style.cssText='width:1.15em;height:auto;vertical-align:inherit';row.append(flag);names.append(row);
+ }
+ document.querySelector('.full-start-new__title').after(names);await frame();pinned();
+ assert(getComputedStyle(names).textAlign==='left','Alternative titles drift to the far right');
+ const taglineTop=rect('.full-start-new__tagline').top;
+ await Promise.all(Array.from(names.querySelectorAll('img')).map(img=>new Promise((resolve,reject)=>{
+  img.onload=resolve;img.onerror=reject;
+  img.src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="80"><rect width="8" height="80" fill="yellow"/></svg>');
+ })));await frame();pinned();
+ assert(Math.abs(rect('.full-start-new__tagline').top-taglineTop)<1,'Loading flags shifts the title block');
+ const details=document.createElement('div');details.className='myshows-details';details.textContent='MyShows: рейтинг, оценка, комментарии и рецензии';right.append(details);await frame();pinned();
+ const longName=document.createElement('div');longName.textContent='VeryLongOriginalTitle'.repeat(12);names.append(longName);await frame();pinned();
+ assert(right.getBoundingClientRect().right<=innerWidth-20,'Long original title pushes the column off screen');
+ assert(names.scrollWidth<=names.clientWidth+1,'Long original title overflows its block');
+ document.querySelector('.full-start-new__title').textContent='Длинное название сериала с несколькими строками и дополнительным описанием';await frame();pinned();
+ return {passed:true,lateTitles:true,lateFlags:true,lateMyShows:true,longNames:true,posterOffset:rect('.full-start-new__poster').top-rect('.full-start-new__body').top};
+}
+run().then(result=>{window.cardLayoutTest=result;document.querySelector('#result').textContent=JSON.stringify(result,null,2)}).catch(error=>{window.cardLayoutTest={passed:false,error:error.message};document.querySelector('#result').textContent=JSON.stringify(cardLayoutTest,null,2)});
+</script>
