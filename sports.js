@@ -1,20 +1,29 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.3.1';
+    var VERSION = '0.4.0';
+    var PARSER_URL = 'https://jackett.home.lurno.ru';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', color: '#29496a' },
         nba: { title: 'NBA', path: 'basketball/nba', color: '#824831' },
         ufc: { title: 'UFC', path: 'mma/ufc', color: '#78323c' },
         f1: { title: 'Formula 1', path: 'racing/f1', color: '#883237' },
-        nascar: { title: 'NASCAR Cup', path: 'racing/nascar-premier', color: '#74602d' }
+        nascar: { title: 'NASCAR Cup', path: 'racing/nascar-premier', color: '#74602d' },
+        ucl: { title: 'Лига чемпионов', path: 'soccer/uefa.champions', color: '#253d85' },
+        epl: { title: 'Чемпионат Англии', path: 'soccer/eng.1', color: '#563164' }
     };
     var PARTS = { FP1: 'Тренировка 1', FP2: 'Тренировка 2', FP3: 'Тренировка 3', Qual: 'Квалификация', SQ: 'Квалификация спринта', Sprint: 'Спринт', Race: 'Гонка' };
-    var COVERS = { nhl: 4, nba: 5, ufc: 14, f1: 10, nascar: 10 };
+    var COVERS = { nhl: 4, nba: 5, ufc: 14, f1: 10, nascar: 10, ucl: 3, epl: 3 };
     function image(url) {
         if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return '';
         try { var parsed = new URL(url); return parsed.username || parsed.password ? '' : parsed.href; } catch (_) { return ''; }
     }
     function validDate(value) { return typeof value === 'string' && isFinite(Date.parse(value)); }
+    function parserUrl(value) {
+        try {
+            var url = new URL(String(value).trim());
+            return /^https?:$/.test(url.protocol) && !url.username && !url.password && !url.search && !url.hash ? url.href.replace(/\/+$/, '') : '';
+        } catch (_) { return ''; }
+    }
     function monthKey(date) { return date.getFullYear() + String(date.getMonth() + 1).padStart(2, '0'); }
     function schedule(sport, data, now) {
         now = now || Date.now();
@@ -24,12 +33,17 @@
             if (e.status && e.status.type && ['STATUS_CANCELED', 'STATUS_POSTPONED'].includes(e.status.type.name)) return null;
             var competitions = e.competitions || [], first = competitions[0] || {};
             var event = { id: sport + '_' + e.id, sport: sport, date: e.date, end: validDate(e.endDate) ? e.endDate : e.date, logo: image(logos[0] && logos[0].href), parts: [] };
-            if (sport === 'nhl' || sport === 'nba') {
+            if (['nhl', 'nba', 'ucl', 'epl'].includes(sport)) {
                 event.teams = (first.competitors || []).map(function (c) { return { name: String(c.team && c.team.displayName || ''), logo: image(c.team && c.team.logo) }; });
                 if (event.teams.length !== 2 || event.teams.some(function (t) { return !t.name; })) return null;
                 event.title = event.teams.map(function (t) { return t.name; }).join(' — ');
+                var year = new Date(e.date).getUTCFullYear(), american = sport === 'nhl' || sport === 'nba';
+                var supplied = Number(e.season && e.season.year);
+                var start = Number.isInteger(supplied) && supplied > 1900 && supplied < 2200 ? supplied - (american ? 1 : 0) : year - (new Date(e.date).getUTCMonth() < (american ? 8 : 6) ? 1 : 0);
+                event.season = start + '-' + (start + 1);
                 event.parts = [{ id: 'full', title: 'Полная запись', date: e.date }];
             } else if (sport === 'f1') {
+                event.name = String(e.name || '');
                 event.location = String(e.circuit && e.circuit.address && (e.circuit.address.city || e.circuit.address.country) || e.shortName || e.name || 'Formula 1');
                 event.title = 'Гран-при: ' + event.location;
                 competitions.forEach(function (c) {
@@ -49,13 +63,67 @@
             return event.parts.length ? event : null;
         }).filter(Boolean).sort(function (a, b) { return Date.parse(b.date) - Date.parse(a.date); });
     }
+    // shortcut: one common Russian club name is used; add aliases after a verified miss.
+    var CLUBS = {
+        'Manchester United': 'манчестер юнайтед', 'Manchester City': 'манчестер сити', 'Arsenal': 'арсенал', 'Liverpool': 'ливерпуль',
+        'Chelsea': 'челси', 'Tottenham Hotspur': 'тоттенхэм', 'Newcastle United': 'ньюкасл', 'Nottingham Forest': 'ноттингем',
+        'Aston Villa': 'астон вилла', 'AFC Bournemouth': 'борнмут', 'Brighton & Hove Albion': 'брайтон', 'Brentford': 'брентфорд',
+        'Crystal Palace': 'кристал пэлас', 'Everton': 'эвертон', 'Fulham': 'фулхэм', 'Leeds United': 'лидс',
+        'Sunderland': 'сандерленд', 'Coventry City': 'ковентри', 'Hull City': 'халл', 'Ipswich Town': 'ипсвич', 'West Ham United': 'вест хэм',
+        'Wolverhampton Wanderers': 'вулверхэмптон', 'Burnley': 'бернли', 'Leicester City': 'лестер', 'Southampton': 'саутгемптон',
+        'Real Madrid': 'реал мадрид', 'Atlético Madrid': 'атлетико', 'Barcelona': 'барселона', 'Bayern Munich': 'бавария', 'Borussia Dortmund': 'боруссия дортмунд',
+        'Paris Saint-Germain': 'псж', 'Internazionale': 'интер', 'AS Roma': 'рома', 'Napoli': 'наполи', 'Juventus': 'ювентус', 'AC Milan': 'милан',
+        'FC Porto': 'порту', 'Sporting CP': 'спортинг', 'Benfica': 'бенфика', 'RB Leipzig': 'лейпциг', 'VfB Stuttgart': 'штутгарт', 'Bayer Leverkusen': 'байер',
+        'PSV Eindhoven': 'псв', 'Feyenoord Rotterdam': 'фейеноорд', 'Ajax Amsterdam': 'аякс', 'Club Brugge': 'брюгге', 'Galatasaray': 'галатасарай',
+        'Fenerbahce': 'фенербахче', 'Shakhtar Donetsk': 'шахтер', 'Bodo/Glimt': 'буде глимт', 'Real Betis': 'бетис', 'Villarreal': 'вильярреал',
+        'Lille': 'лилль', 'Lens': 'ланс', 'Como': 'комо', 'AEK Athens': 'аек', 'LASK Linz': 'ласк', 'Slavia Prague': 'славия', 'Slovan Bratislava': 'слован',
+        'Viking FK': 'викинг', 'Sabah FK': 'сабах'
+    };
+    var GRAND_PRIX = [
+        [/las vegas|лас.?вегас/i, 'Лас-Вегаса'], [/miami|майами/i, 'Майами'],
+        [/bahrain|sakhir|бахрейн/i, 'Бахрейна'], [/saudi|jeddah|саудовск/i, 'Саудовской Аравии'],
+        [/australi|melbourne|австрали/i, 'Австралии'], [/japan|suzuka|япони/i, 'Японии'],
+        [/chin(?:a|ese)|shanghai|кита[йя]/i, 'Китая'], [/canad|montreal|канады/i, 'Канады'],
+        [/monaco|монако/i, 'Монако'], [/barcelona|catalun|барселон/i, 'Барселоны'],
+        [/austri|spielberg|австри/i, 'Австрии'], [/british|britain|silverstone|великобрит/i, 'Великобритании'],
+        [/belgi|spa-franc|бельги/i, 'Бельгии'], [/hungar|budapest|венгри/i, 'Венгрии'],
+        [/dutch|netherland|zandvoort|нидерланд/i, 'Нидерландов'], [/emilia|imola|эмилли|эмильи/i, 'Эмилии-Романьи'],
+        [/ital(?:y|ian)|monza|италии/i, 'Италии'], [/spanish|spain|madrid|испани/i, 'Испании'],
+        [/azerbaijan|baku|азербайджан/i, 'Азербайджана'], [/singapore|сингапур/i, 'Сингапура'],
+        [/united states|austin|сша/i, 'США'], [/mexic|мексик/i, 'Мексики'],
+        [/brazil|s[aã]o paulo|бразили/i, 'Бразилии'], [/qatar|lusail|катар/i, 'Катара'],
+        [/abu dhabi|yas marina|абу.?даби/i, 'Абу-Даби']
+    ];
+    function preference(a, b) {
+        function rank(entry) {
+            var title = entry.Title || '', tags = title.includes('[') ? title.slice(title.lastIndexOf('[') + 1, title.lastIndexOf(']') > title.lastIndexOf('[') ? title.lastIndexOf(']') : undefined) : title;
+            var ru = /(?:^|[^a-zа-яё])(?:ru|rus|ру|russian|русский)(?=$|[^a-zа-яё])/i.test(tags);
+            var quality = /2160[pр]|\b4k\b|\buhd\b/i.test(title) ? 4 : /1080[pр]/i.test(title) ? 3 : /1080i/i.test(title) ? 2 : /720[pр]/i.test(title) ? 1 : 0;
+            return (Number(entry.Seeders) > 0 ? 100000 : 0) + (ru ? 10000 : 0) + quality * 100 + (/(?:50|59[.,]940?|60)\s*fps/i.test(title) ? 10 : 0);
+        }
+        return rank(b) - rank(a) || (Number(b.Seeders) || 0) - (Number(a.Seeders) || 0);
+    }
     function searchParams(event, part) {
-        var year = new Date(event.date).getUTCFullYear(), broad = SPORTS[event.sport].title + (event.sport === 'nhl' ? '' : ' ' + year);
-        var query = event.title;
-        if (event.sport === 'f1') query = 'Formula 1 ' + year + ' ' + event.location + ' ' + part.id;
-        else if (event.sport === 'ufc' && part.id !== 'full') query += ' ' + ({ main: 'Main Card', prelims: 'Prelims', early: 'Early Prelims' }[part.id] || part.title);
+        var year = new Date(event.date).getUTCFullYear(), american = ['nhl', 'nba', 'nascar', 'ufc'].includes(event.sport);
+        var date = new Date(event.date).toLocaleDateString('ru-RU', { timeZone: american ? 'America/New_York' : 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+        var start = year - (new Date(event.date).getUTCMonth() < (['nhl', 'nba'].includes(event.sport) ? 8 : 6) ? 1 : 0);
+        var season = event.season || start + '-' + (start + 1);
+        var label = event.teams ? season : year;
+        if (event.teams && event.sport === 'nhl') label = season.slice(2, 4) + '/' + season.slice(7);
+        var broad = SPORTS[event.sport].title + ' ' + label;
+        var query = broad + ' ' + date;
+        if (event.teams) query = broad + ' ' + event.teams.map(function (team) { return CLUBS[team.name] || team.name; }).join(' ') + ' ' + date;
+        if (event.sport === 'f1') {
+            var location = event.location || event.title;
+            var name = (event.name || '') + ' ' + location;
+            GRAND_PRIX.some(function (rule) { if (rule[0].test(name)) { location = rule[1]; return true; } return false; });
+            query = 'Formula 1 ' + year + ' ' + location;
+        }
+        if (event.sport === 'nascar') query = 'NASCAR Cup Series ' + year + ' ' + date;
+        // Parts can live inside Full Event/weekend packs whose titles do not name the selected part.
+        if (event.sport === 'ufc') query = event.title;
         return { component: 'torrents', title: 'Поиск записи', search: query, from_search: true, krajcik_sports: true, page: 1,
-            movie: { title: escape(event.title), original_title: escape(event.title), release_date: event.date, genres: [], names: [broad, SPORTS[event.sport].title] } };
+            movie: { id: event.id + '_' + part.id, title: escape(event.title), original_title: escape(event.title), release_date: event.date, genres: [], names: [broad, SPORTS[event.sport].title] } };
     }
     function nativeEvent(data) {
         var title = String(data.title || '').replace(/\s*\(RU\)/gi, '').trim(), sport;
@@ -64,15 +132,17 @@
         else if (/\bUFC\b/i.test(title)) sport = 'ufc';
         else if (/formula[ ._-]*1|формула[ ._-]*1|\bF1\b/i.test(title)) sport = 'f1';
         else if (/nascar|наскар/i.test(title)) sport = 'nascar';
+        else if (/лига чемпионов|UEFA Champions League/i.test(title) && !/хоккей|баскетбол|велоспорт|гандбол|волейбол|женщ/i.test(title)) sport = 'ucl';
+        else if (/АПЛ|English Premier League|Англия.*премьер/i.test(title)) sport = 'epl';
         var time = Number(data.time_start);
         if (!sport || !isFinite(time) || !time || !isFinite(new Date(time).getTime())) return null;
         return { id: 'cub_' + data.id, sport: sport, title: title, date: new Date(time).toISOString(), parts: [{ id: 'full', title: 'Запись трансляции' }] };
     }
-    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image };
+    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image, parserUrl: parserUrl, preference: preference };
     if (typeof module !== 'undefined' && module.exports) module.exports = core;
     if (!root || !root.Lampa || root.krajcik_sports) return;
     root.krajcik_sports = { version: VERSION };
-    var L = root.Lampa, calendars = {};
+    var L = root.Lampa, calendars = {}, searches = new WeakMap(), results = new WeakMap();
     function escape(value) { return String(value).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
     function stamp(date) { return new Date(date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
     function restore() { L.Controller.toggle('content'); }
@@ -205,16 +275,53 @@
         return comp;
     }
     function start() {
-        if (root.krajcik_sports.started || !L.Component || !L.Component.create || !L.Layer) return;
+        if (root.krajcik_sports.started || !L.Component || !L.Component.create || !L.Layer || !L.Parser || !L.Parser.get) return;
         root.krajcik_sports.started = true;
+        var get = L.Parser.get;
+        L.Parser.get = function (params, complete, error) {
+            if (!params || params.krajcik_sports !== true) return get.apply(this, arguments);
+            var url = parserUrl(L.Storage.get('krajcik_sports_jackett_url', PARSER_URL));
+            var key = String(L.Storage.get('krajcik_sports_jackett_key', '') || '').trim();
+            if (!url) return error('Проверьте адрес в «Настройки → Спорт · записи».');
+            if (!key) return error('Введите API-ключ в «Настройки → Спорт · записи».');
+            var previous = searches.get(params);
+            if (previous) previous.cancel();
+            var net = new L.Reguest(), active = true;
+            var job = { cancel: function () { active = false; searches.delete(params); net.clear(); } };
+            searches.set(params, job);
+            function finish(fn, value) { if (!active) return; job.cancel(); fn(value); }
+            net.timeout(120000);
+            net.native(url + '/api/v2.0/indexers/rutracker/results?apikey=' + encodeURIComponent(key) + '&Query=' + encodeURIComponent(params.search) + '&Category[]=5060', function (data) {
+                if (!active) return;
+                if (!data || !Array.isArray(data.Results) || data.Results.some(function (entry) { return !entry || typeof entry.Title !== 'string'; })) return finish(error, 'Спортивный парсер вернул некорректный ответ.');
+                var viewed = L.Storage.cache('torrents_view', 5000, []);
+                data.Results.forEach(function (entry) {
+                    entry.PublisTime = L.Utils.strToTime(entry.PublishDate);
+                    entry.hash = L.Utils.hash(entry.Title);
+                    entry.viewed = viewed.indexOf(entry.hash) !== -1;
+                    entry.size = L.Utils.bytesToSize(entry.Size);
+                    entry.checked_at = Date.now(); entry.source_rank = 0;
+                });
+                results.set(params, data);
+                finish(complete, data);
+            }, function (response) {
+                finish(error, response && response.status === 401 ? 'Проверьте API-ключ в «Спорт · записи».' : 'Спортивный парсер недоступен. Повторите поиск: первая проверка Cloudflare может занять около минуты.');
+            });
+        };
         // The extension detector requires an explicit API name in the script.
         var original = root.Lampa.Component.create;
         L.Component.create = function (object) {
             var comp = original.apply(this, arguments);
             if (object.component === 'cub_sport' && typeof comp.build === 'function' && typeof comp.append === 'function') return enhance(comp);
-            if (object.component === 'torrents' && object.krajcik_sports && typeof comp.empty === 'function') {
-                var empty = comp.empty;
+            if (object.component === 'torrents' && object.krajcik_sports === true && typeof comp.empty === 'function') {
+                var empty = comp.empty, destroy = comp.destroy, sort = comp.sortResults;
+                if (sort) comp.sortResults = function (need) {
+                    sort.apply(comp, arguments);
+                    var data = results.get(object);
+                    if (need === 'popular' && data) data.Results.sort(preference);
+                };
                 comp.empty = function () { var result = empty.apply(comp, arguments); comp.render().find('.empty__footer .selector').eq(0).text('Поиск: ' + object.search); return result; };
+                comp.destroy = function () { var job = searches.get(object); if (job) job.cancel(); results.delete(object); return destroy.apply(comp, arguments); };
             }
             return comp;
         };
@@ -223,6 +330,11 @@
         document.head.appendChild(style);
         style.textContent += '.items-line--type-krajcik-sports-controls{min-height:0}.krajcik-sports-control{width:14em!important}.krajcik-sports-control .card__view{height:5.2em;padding-bottom:0}.krajcik-sports-control .krajcik-sports-logos{display:none}';
         L.SettingsApi.addComponent({ component: 'krajcik_sports', name: 'Спорт · записи' });
+        L.SettingsApi.addParam({ component: 'krajcik_sports', param: { name: 'krajcik_sports_jackett_url', type: 'input', values: '', default: PARSER_URL }, field: { name: 'Парсер спортивных записей', description: 'Отдельный Jackett для спорта. Поиск фильмов и сериалов использует прежние настройки.' } });
+        L.SettingsApi.addParam({ component: 'krajcik_sports', param: { name: 'krajcik_sports_jackett_key', type: 'button' }, field: { name: 'API-ключ спортивного парсера', description: 'Ввести ключ из панели Jackett.' }, onChange: function () {
+            // The native keyboard logs entered text; use Lampa's masked keyboard for this secret.
+            L.Input.edit({ title: 'API-ключ спортивного парсера', value: L.Storage.get('krajcik_sports_jackett_key', ''), password: true, keyboard: 'lampa', nomic: true, nosave: true }, function (value) { L.Storage.set('krajcik_sports_jackett_key', value.trim()); L.Noty.show('API-ключ спорта сохранён'); });
+        } });
         Object.keys(SPORTS).forEach(function (sport) { L.SettingsApi.addParam({ component: 'krajcik_sports', param: { name: 'krajcik_sports_' + sport, type: 'trigger', default: true }, field: { name: SPORTS[sport].title, description: 'Календарь внутри раздела Спорт. Применяется при повторном входе.' } }); });
     }
     if (root.appready) start();
