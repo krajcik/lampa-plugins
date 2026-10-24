@@ -207,7 +207,8 @@ test('sports and ordinary requests use separate backends without changing global
     assert.equal(env.Lampa.Parser.get(series, complete, error), 'native request');
     assert.deepEqual(env.ordinaryCalls.map(x => x.args[0]), [movie, series]);
     assert.ok(env.ordinaryCalls.every(x => x.context === env.Lampa.Parser && x.args[1] === complete && x.args[2] === error));
-    assert.equal(env.jobs.length, 1);
+    assert.equal(env.jobs.length, 4);
+    assert.deepEqual(env.jobs.map(j => new URL(j.url).pathname.split("/")[4]), ["rutracker", "noname-clubl", "rgfootball", "rutor"]);
     const url = new URL(env.jobs[0].url);
     assert.equal(url.origin, 'https://jackett.home.lurno.ru');
     assert.equal(url.pathname, '/api/v2.0/indexers/rutracker/results');
@@ -226,7 +227,8 @@ test('sports responses retain native playback links and receive the native torre
     env.Lampa.Parser.get(input, data => { received = data; }, assert.fail);
     const raw = { Results: [{ Title: 'seen', PublishDate: '2026-10-24', Size: 123, Link: 'https://jackett.home.lurno.ru/dl/rutracker/?example=1', Seeders: 2 }] };
     env.jobs[0].done(raw);
-    assert.equal(received, raw);
+    env.jobs.slice(1).forEach(job => job.done({ Results: [] }));
+    assert.equal(received.Results[0], raw.Results[0]);
     assert.equal(received.Results[0].Link, raw.Results[0].Link);
     assert.equal(received.Results[0].hash, 'hash:seen');
     assert.equal(received.Results[0].viewed, true);
@@ -247,11 +249,12 @@ test('leaving an old sports search cancels only its own request and suppresses l
     a.destroy();
     env.jobs[0].done({ Results: [] }); env.jobs[0].fail({ status: 500 });
     assert.equal(completed, 0); assert.equal(errors, 0);
-    assert.equal(env.jobs[0].cleared, 1); assert.equal(env.jobs[1].cleared, 0);
-    env.jobs[1].done({ Results: [] });
+    assert.ok(env.jobs.slice(0, 4).every(job => job.cleared === 1));
+    assert.ok(env.jobs.slice(4).every(job => job.cleared === 0));
+    env.jobs.slice(4).forEach(job => job.done({ Results: [] }));
     assert.equal(completed, 1); assert.equal(errors, 0);
     b.destroy();
-    assert.equal(env.jobs[1].cleared, 1);
+    assert.ok(env.jobs.every(job => job.cleared === 1));
 });
 
 test('repeating an edited sports search cancels its previous request', () => {
@@ -262,8 +265,8 @@ test('repeating an edited sports search cancels its previous request', () => {
     env.Lampa.Parser.get(params, () => { completed++; }, assert.fail);
     env.jobs[0].done({ Results: [] });
     assert.equal(completed, 0); assert.equal(env.jobs[0].cleared, 1);
-    assert.equal(new URL(env.jobs[1].url).searchParams.get('Query'), 'edited');
-    env.jobs[1].done({ Results: [] }); assert.equal(completed, 1);
+    assert.equal(new URL(env.jobs[4].url).searchParams.get('Query'), 'edited');
+    env.jobs.slice(4).forEach(job => job.done({ Results: [] })); assert.equal(completed, 1);
 });
 
 test('missing keys and unsafe URLs fail locally without falling back to the movie parser', () => {
@@ -278,18 +281,18 @@ test('missing keys and unsafe URLs fail locally without falling back to the movi
 });
 
 test('parser errors and malformed replies do not expose the API key or trigger a second callback', () => {
-    for (const reply of [null, {}, { Results: {} }, { Results: [null] }, { Results: [{ Title: 7 }] }]) {
+    for (const reply of [null, {}, { Results: {} }, { Results: [null] }, { Results: [{ Title: 7 }] }, { Results: [], Indexers: [{ Status: 1, Error: 'secret' }] }, { Results: [], Indexers: [{ Status: 0 }] }]) {
         const env = boot(); let errors = 0;
         env.Lampa.Parser.get({ krajcik_sports: true, search: 'NHL' }, assert.fail, () => { errors++; });
-        env.jobs[0].done(reply); env.jobs[0].fail({ status: 500 });
+        env.jobs.forEach(job => { job.done(reply); job.fail({ status: 500 }); });
         assert.equal(errors, 1);
     }
     for (const status of [401, 500]) {
         const env = boot(); let message;
         env.Lampa.Parser.get({ krajcik_sports: true, search: 'NHL' }, assert.fail, value => { message = value; });
-        env.jobs[0].fail({ status, responseURL: env.jobs[0].url });
+        env.jobs.forEach(job => job.fail({ status, responseURL: job.url }));
         assert.doesNotMatch(message, /sports-test-key|apikey=/);
-        assert.match(message, status === 401 ? /API-ключ/ : /недоступен/);
+        assert.match(message, status === 401 ? /API-ключ/ : /недоступн/);
         assert.equal(env.counts().searches, 0);
     }
 });
@@ -347,4 +350,45 @@ test('default sports preference ranks seeded Russian HD first without trusting a
     assert.equal(sorted[2], entries[0]); assert.equal(sorted.at(-1), entries[3]);
     assert.equal(entries.length, sorted.length);
     assert.ok(sports.preference({ Title: 'Race [4K, RUS]', Seeders: 1 }, { Title: 'Race [1080p, RUS]', Seeders: 10 }) < 0);
+});
+
+test('per-tracker categories and queries preserve weekend packs and user edits', () => {
+    for (const sport of Object.keys(sports.SPORTS)) {
+        const [event] = sports.schedule(sport, fixture[sport], now);
+        const params = sports.searchParams(event, event.parts[0]);
+        const queries = sports.trackerQueries(params);
+        assert.equal(queries[0].query, params.search);
+        assert.equal(queries[0].category, 5060);
+        assert.equal(queries[2].category, 5060);
+        assert.equal(queries[3].category, 8000);
+        assert.ok(queries[1].category > 100000);
+        if (sport === 'f1') {
+            assert.equal(queries[1].query, 'Формула 1 2026 Сингапура');
+            assert.equal(queries[2].query, 'Формула 1 2026 Сингапура');
+            assert.doesNotMatch(JSON.stringify(queries), /Квалификация|Гонка|Qual/);
+        }
+        if (sport === 'ucl') {
+            assert.equal(queries[2].query, 'Paris Saint-Germain Barcelona 2026 20.10.2026');
+            assert.equal(queries[3].query, 'Лига чемпионов 2026 20.10');
+        }
+        params.search = 'my edited query';
+        assert.ok(sports.trackerQueries(params).every(q => q.query === 'my edited query'));
+        assert.equal(sports.trackerQueries(params)[1].category, 5000);
+    }
+});
+
+test('partial failures preserve other trackers and do not lose distinct releases or playback links', () => {
+    const env = boot(); let received, calls = 0;
+    env.Lampa.Parser.get({ krajcik_sports: true, search: 'UFC' }, data => { received = data; calls++; }, assert.fail);
+    env.jobs[1].fail({ status: 500 });
+    env.jobs[0].done({ Results: [{ Title: 'UFC RU', Seeders: 3, Link: 'https://example.org/dl/rutracker' }] });
+    env.jobs[2].done({ Results: [{ Title: 'UFC Full Event EN', Seeders: 2, Link: 'https://example.org/dl/rgfootball' }] });
+    assert.equal(calls, 0);
+    env.jobs[3].done({ Results: [{ Title: 'UFC RU', Seeders: 1, MagnetUri: 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789' }] });
+    assert.equal(calls, 1);
+    assert.equal(received.Results.length, 3);
+    assert.equal(received.Results[1].Link, 'https://example.org/dl/rgfootball');
+    assert.match(env.notices[0], /noname-clubl/);
+    env.jobs.forEach(job => job.fail({ status: 500 }));
+    assert.equal(calls, 1);
 });

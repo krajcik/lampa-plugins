@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.4.0';
+    var VERSION = '0.5.0';
     var PARSER_URL = 'https://jackett.home.lurno.ru';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', color: '#29496a' },
@@ -123,7 +123,30 @@
         // Parts can live inside Full Event/weekend packs whose titles do not name the selected part.
         if (event.sport === 'ufc') query = event.title;
         return { component: 'torrents', title: 'Поиск записи', search: query, from_search: true, krajcik_sports: true, page: 1,
+            krajcik_sports_query: query, krajcik_sports_event: event,
             movie: { id: event.id + '_' + part.id, title: escape(event.title), original_title: escape(event.title), release_date: event.date, genres: [], names: [broad, SPORTS[event.sport].title] } };
+    }
+    function trackerQueries(params) {
+        var event = params.krajcik_sports_event, query = String(params.search || '');
+        var nnmCategories = { nhl: 101263, nba: 100609, ufc: 100608, f1: 100750, nascar: 100606, ucl: 100974, epl: 100974 };
+        var queries = [
+            { id: 'rutracker', query: query, category: 5060 },
+            { id: 'noname-clubl', query: query.replace(/formula[ ._-]*1/i, 'Формула 1'), category: event && params.krajcik_sports_query === query && nnmCategories[event.sport] || 5000 },
+            { id: 'rgfootball', query: query, category: 5060 },
+            { id: 'rutor', query: query.replace(/formula[ ._-]*1/i, 'Формула 1'), category: 8000 }
+        ];
+        // A manual edit is authoritative; never replace it with the original event query.
+        if (!event || params.krajcik_sports_query !== query) return queries;
+        var year = new Date(event.date).getUTCFullYear();
+        var date = new Date(event.date).toLocaleDateString('ru-RU', { timeZone: ['nhl', 'nba', 'nascar', 'ufc'].includes(event.sport) ? 'America/New_York' : 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+        if (event.sport === 'f1') {
+            queries[2].query = queries[1].query;
+        } else if (event.sport !== 'ufc') {
+            // Supplemental sites may translate team names and split the date as [DD.MM] (YYYY).
+            queries[1].query = queries[3].query = SPORTS[event.sport].title + ' ' + year + ' ' + date.slice(0, 5);
+            queries[2].query = (event.teams ? event.teams.map(function (t) { return t.name; }).join(' ') : 'NASCAR') + ' ' + year + ' ' + date;
+        }
+        return queries;
     }
     function nativeEvent(data) {
         var title = String(data.title || '').replace(/\s*\(RU\)/gi, '').trim(), sport;
@@ -138,7 +161,7 @@
         if (!sport || !isFinite(time) || !time || !isFinite(new Date(time).getTime())) return null;
         return { id: 'cub_' + data.id, sport: sport, title: title, date: new Date(time).toISOString(), parts: [{ id: 'full', title: 'Запись трансляции' }] };
     }
-    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image, parserUrl: parserUrl, preference: preference };
+    var core = { SPORTS: SPORTS, schedule: schedule, searchParams: searchParams, nativeEvent: nativeEvent, image: image, parserUrl: parserUrl, preference: preference, trackerQueries: trackerQueries };
     if (typeof module !== 'undefined' && module.exports) module.exports = core;
     if (!root || !root.Lampa || root.krajcik_sports) return;
     root.krajcik_sports = { version: VERSION };
@@ -286,26 +309,36 @@
             if (!key) return error('Введите API-ключ в «Настройки → Спорт · записи».');
             var previous = searches.get(params);
             if (previous) previous.cancel();
-            var net = new L.Reguest(), active = true;
-            var job = { cancel: function () { active = false; searches.delete(params); net.clear(); } };
+            var queries = trackerQueries(params), nets = [], active = true, pending = queries.length, successful = 0, failures = [], entries = [];
+            var job = { cancel: function () { active = false; searches.delete(params); nets.forEach(function (net) { net.clear(); }); } };
             searches.set(params, job);
             function finish(fn, value) { if (!active) return; job.cancel(); fn(value); }
-            net.timeout(120000);
-            net.native(url + '/api/v2.0/indexers/rutracker/results?apikey=' + encodeURIComponent(key) + '&Query=' + encodeURIComponent(params.search) + '&Category[]=5060', function (data) {
+            function settled(source, data, failure) {
                 if (!active) return;
-                if (!data || !Array.isArray(data.Results) || data.Results.some(function (entry) { return !entry || typeof entry.Title !== 'string'; })) return finish(error, 'Спортивный парсер вернул некорректный ответ.');
+                if (!failure && (!data || !Array.isArray(data.Results) || data.Results.some(function (entry) { return !entry || typeof entry.Title !== 'string'; }))) failure = 'Некорректный ответ';
+                if (!failure && Array.isArray(data.Indexers) && data.Indexers.some(function (indexer) { return !indexer || indexer.Status !== 2; })) failure = 'Ошибка трекера';
+                if (failure) failures.push({ id: source.id, status: failure.status });
+                else { successful++; entries = entries.concat(data.Results); }
+                if (--pending) return;
+                if (!successful) return finish(error, failures.every(function (f) { return f.status === 401; }) ? 'Проверьте API-ключ в «Спорт · записи».' : 'Спортивные трекеры недоступны. Повторите поиск: проверка Cloudflare может занять около минуты.');
+                if (failures.length) L.Noty.show('Не ответили: ' + failures.map(function (f) { return f.id; }).join(', ') + '. Показана доступная выдача.');
                 var viewed = L.Storage.cache('torrents_view', 5000, []);
-                data.Results.forEach(function (entry) {
+                entries.forEach(function (entry) {
                     entry.PublisTime = L.Utils.strToTime(entry.PublishDate);
                     entry.hash = L.Utils.hash(entry.Title);
                     entry.viewed = viewed.indexOf(entry.hash) !== -1;
                     entry.size = L.Utils.bytesToSize(entry.Size);
                     entry.checked_at = Date.now(); entry.source_rank = 0;
                 });
+                var data = { Results: entries };
                 results.set(params, data);
                 finish(complete, data);
-            }, function (response) {
-                finish(error, response && response.status === 401 ? 'Проверьте API-ключ в «Спорт · записи».' : 'Спортивный парсер недоступен. Повторите поиск: первая проверка Cloudflare может занять около минуты.');
+            }
+            queries.forEach(function (source) {
+                var net = new L.Reguest(), answered = false; nets.push(net); net.timeout(120000);
+                function reply(data, failure) { if (answered) return; answered = true; settled(source, data, failure); }
+                net.native(url + '/api/v2.0/indexers/' + source.id + '/results?apikey=' + encodeURIComponent(key) + '&Query=' + encodeURIComponent(source.query) + '&Category[]=' + source.category,
+                    function (data) { reply(data); }, function (response) { reply(null, response || {}); });
             });
         };
         // The extension detector requires an explicit API name in the script.
