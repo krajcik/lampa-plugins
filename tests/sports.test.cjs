@@ -411,7 +411,7 @@ test('team events offer separate match/day reviews without changing full recordi
             assert.ok(!day.url && !day.autostart);
             assert.doesNotMatch(day.search, /Canucks|Nuggets|псж|ливерпуль|26\/27|2026-2027/);
             assert.equal(sports.trackerQueries(match).length, 4);
-            assert.equal(sports.trackerQueries(day).length, ['ucl', 'epl'].includes(sport) ? 5 : 4);
+            assert.equal(sports.trackerQueries(day).length, 4);
             match.search = 'edited';
             assert.ok(sports.trackerQueries(match).every(q => q.query === 'edited'));
         } else assert.deepEqual(parts, event.parts);
@@ -430,8 +430,7 @@ test('review queries use calibrated dates and retain condensed-game packs', () =
     const queries = sports.trackerQueries(sports.searchParams(ucl, sports.eventParts(ucl)[2]));
     assert.equal(queries[0].query, 'Лига чемпионов Обзор 20.10.2026');
     assert.equal(queries[3].query, 'Лига чемпионов Обзор 2026 20.10');
-    assert.equal(queries[2].query, 'Champions League Highlights 20.10.2026');
-    assert.equal(queries[4].query, 'Champions League Highlights 21.10.2026');
+    assert.equal(queries[2].query, 'Champions League Highlights 21.10.2026');
 });
 
 test('review date checks reject RuTracker wildcard false positives while retaining ranges and undated releases', () => {
@@ -448,6 +447,7 @@ test('review date checks reject RuTracker wildcard false positives while retaini
     assert.equal(keep('NHL Highlights without an explicit date'), true);
     const ucl = { sport: 'ucl', date: '2026-10-20T19:00Z' };
     assert.equal(sports.reviewMatches('UCL Highlights [21.10.2026, RUS]', ucl, 'day_review', 'rgfootball'), true);
+    assert.equal(sports.reviewMatches('UCL Highlights [20.10.2026, RUS]', ucl, 'day_review', 'rgfootball'), false);
     assert.equal(sports.reviewMatches('UCL Highlights [22.10.2026, RUS]', ucl, 'day_review', 'rgfootball'), false);
     assert.equal(sports.reviewMatches('UCL Highlights [21-22.10.2026, RUS]', ucl, 'day_review', 'rgfootball'), true);
 });
@@ -459,12 +459,11 @@ test('review aggregation removes duplicate topics from date variants, keeps alte
     env.Lampa.Parser.get(params, data => { received = data; }, assert.fail);
     env.jobs[0].done({ Results: [{ Title: 'Обзор 20.10.2025' }] });
     env.jobs[1].done({ Results: [] });
-    env.jobs[2].done({ Results: [{ Title: 'Highlights 21.10.2026 RU', Guid: 'topic-1' }] });
+    env.jobs[2].done({ Results: [{ Title: 'Highlights 21.10.2026 RU', Guid: 'topic-1' }, { Title: 'Highlights 21.10.2026 RU', Guid: 'topic-1' }, { Title: 'Highlights 21.10.2026 EN', Guid: 'topic-2' }, { Title: 'Previous day 20.10.2026', Guid: 'old-day' }] });
     env.jobs[3].done({ Results: [{ Title: 'Обзор [20.10] (2026)', Guid: 'topic-1' }] });
-    env.jobs[4].done({ Results: [{ Title: 'Highlights 21.10.2026 RU', Guid: 'topic-1' }, { Title: 'Highlights 21.10.2026 EN', Guid: 'topic-2' }] });
     assert.equal(received.Results.length, 3);
     params.search = 'edited date';
     env.Lampa.Parser.get(params, data => { received = data; }, assert.fail);
-    env.jobs.slice(5).forEach((job, i) => job.done({ Results: i ? [] : [{ Title: 'Обзор 20.10.2025' }] }));
+    env.jobs.slice(4).forEach((job, i) => job.done({ Results: i ? [] : [{ Title: 'Обзор 20.10.2025' }] }));
     assert.equal(received.Results.length, 1);
 });

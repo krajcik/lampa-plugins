@@ -1,6 +1,6 @@
 (function (root) {
     'use strict';
-    var VERSION = '0.6.0';
+    var VERSION = '0.6.1';
     var PARSER_URL = 'https://jackett.home.lurno.ru';
     var SPORTS = {
         nhl: { title: 'NHL', path: 'hockey/nhl', color: '#29496a' },
@@ -118,19 +118,18 @@
     }
     function reviewMatches(title, event, mode, source) {
         var expected = eventDate(event), explicit = /за\s+(\d{2}\.\d{2}\.\d{4})/i.exec(title);
-        var dates = [expected];
-        if (!explicit && mode === 'day_review' && source === 'rgfootball') dates.push(nextDay(expected));
+        if (!explicit && mode === 'day_review' && source === 'rgfootball' && event.sport === 'ucl') expected = nextDay(expected);
         var range = /(\d{2})[-–](\d{2})(\.\d{2}\.\d{4})/.exec(title);
         var fullRange = /(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})/.exec(title);
         function iso(date) { return date.slice(6) + date.slice(3, 5) + date.slice(0, 2); }
         if ((range || fullRange) && (!explicit || fullRange && fullRange[1] === explicit[1])) {
             var first = fullRange ? fullRange[1] : range[1] + range[3], last = fullRange ? fullRange[2] : range[2] + range[3];
-            return dates.some(function (date) { return iso(date) >= iso(first) && iso(date) <= iso(last); });
+            return iso(expected) >= iso(first) && iso(expected) <= iso(last);
         }
         var full = explicit || /(\d{2}\.\d{2}\.\d{4})/.exec(title), split = /\[(\d{2}\.\d{2})\]\s*\((\d{4})\)/.exec(title);
         var found = full ? full[1] : split ? split[1] + '.' + split[2] : '';
         // RuTracker turns punctuation into wildcards; its date query can match a different year.
-        return !found || dates.includes(found);
+        return !found || found === expected;
     }
     function searchParams(event, part) {
         var year = new Date(event.date).getUTCFullYear(), date = eventDate(event);
@@ -178,8 +177,7 @@
             var league = { nhl: 'NHL', nba: 'NBA', ucl: 'Champions League', epl: 'Premier League' }[event.sport];
             var teams = !day && !american && event.teams ? event.teams.map(function (t) { return CLUBS[t.name] || t.name; }).join(' ') + ' ' : '';
             queries[1].query = queries[3].query = SPORTS[event.sport].title + ' ' + teams + (day || !american ? 'Обзор ' : 'Highlights ') + year + ' ' + date.slice(0, 5);
-            queries[2].query = (!day && !american && event.teams ? event.teams.map(function (t) { return t.name; }).join(' ') + ' ' : '') + league + ' ' + (day && event.sport === 'epl' ? 'Match of the Day ' : 'Highlights ') + date;
-            if (day && !american) queries.push({ id: 'rgfootball', category: 5060, query: queries[2].query.replace(date, nextDay(date)) });
+            queries[2].query = (!day && !american && event.teams ? event.teams.map(function (t) { return t.name; }).join(' ') + ' ' : '') + league + ' ' + (day && event.sport === 'epl' ? 'Match of the Day ' : 'Highlights ') + (day && event.sport === 'ucl' ? nextDay(date) : date);
             return queries;
         }
         if (event.sport === 'f1') {
