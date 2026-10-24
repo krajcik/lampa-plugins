@@ -1,0 +1,2 @@
+/** Internal Torrent Player 0.1.0 — Lampa 3.3.8, Android. */
+!function(){"use strict";function a(){!window.krajcikInternalTorrentPlayer&&Lampa.Platform.is("android")&&(window.krajcikInternalTorrentPlayer=!0,Lampa.Params.values.player_torrent.inner="#{settings_param_player_inner}",Lampa.Player.listener.follow("create",function(a){a.data&&a.data.torrent_hash&&!a.data.launch_player&&"inner"===Lampa.Storage.field("player_torrent")&&(a.data.launch_player="inner")}))}window.appready?a():Lampa.Listener.follow("app",function(r){"ready"===r.type&&a()})}();
